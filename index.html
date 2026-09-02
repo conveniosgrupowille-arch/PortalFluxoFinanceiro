@@ -732,7 +732,7 @@ function processarOrcamento(itens){
       status: it.status || '?', dataOrcamento: it.data_orcamento,
       valor: it.valor_total_desconto || 0, procedimentos: [],
     });
-    if (it.descricao) porCodigo[it.codigo].procedimentos.push(titleCase(it.descricao));
+    if (it.descricao) porCodigo[it.codigo].procedimentos.push({descricao: titleCase(it.descricao), valor: it.valor || 0});
   });
   ORCAMENTOS = Object.values(porCodigo);
 
@@ -790,7 +790,10 @@ function renderOrcamentoTab(){
   document.getElementById('listOrcamentoConvenio').innerHTML = rankListHtml(convTop);
 
   const porProc = {};
-  base.forEach(o => o.procedimentos.forEach(p => { (porProc[p] ||= {valor:0, qtd:0}); porProc[p].valor += o.valor / (o.procedimentos.length||1); porProc[p].qtd++; }));
+  base.forEach(o => o.procedimentos.forEach(p => {
+    if (!p.descricao) return;
+    (porProc[p.descricao] ||= {valor:0, qtd:0}); porProc[p.descricao].valor += p.valor; porProc[p.descricao].qtd++;
+  }));
   const procTop = Object.entries(porProc).sort((a,b)=>b[1].valor-a[1].valor).slice(0,12).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
   document.getElementById('listOrcamentoProc').innerHTML = rankListHtml(procTop);
 
@@ -809,7 +812,7 @@ function renderOrcamentoDetalhe(){
       <td>${o.paciente}</td>
       <td>${o.convenio}</td>
       <td>${o.status}</td>
-      <td>${o.procedimentos.join('; ') || '-'}</td>
+      <td>${o.procedimentos.map(p=>p.descricao).join('; ') || '-'}</td>
       <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtMoney(o.valor)}</td>
     </tr>`).join('') || '<tr><td colspan="6" style="color:var(--stone);">Nenhum orçamento encontrado.</td></tr>';
 }
