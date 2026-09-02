@@ -132,6 +132,7 @@
     <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
     <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
     <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
+    <button type="button" class="tab-btn" data-tab="cortesias">Cortesia/Retorno</button>
   </div>
 
   <div id="panel-fluxo" class="tab-panel">
@@ -253,6 +254,49 @@
         <table>
           <thead><tr><th style="width:20px;"></th><th>Paciente</th><th>Data</th><th>Convênio</th><th>Categoria</th><th style="text-align:right;">Fat.</th><th style="text-align:right;">Atend.</th><th style="text-align:right;">Valor</th></tr></thead>
           <tbody id="pendBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="panel-cortesias" class="tab-panel" style="display:none;">
+    <section class="section" id="secCortesias" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Cortesia/Retorno</h2>
+      <p class="note">Todo atendimento sem valor registrado (R$ 0,00). Quando o convênio cadastrado é um plano real, o valor cedido é estimado pelo histórico de preço da Bradesco Saúde (mesma referência que o Painel local usa). Quando o convênio está cadastrado como "Cortesia", não estimamos valor. Simplificações desta versão: sem comparação com relatório anterior (não sinaliza "novo"), sem classificação Cortesia/Retorno/Retorno Cirúrgico (essa distinção não sobrevive à atualização automática nem no Painel local) e sem ranking por médico solicitante (esse campo não tem fonte no SQL — sempre fica "Não informado", gap documentado na extração). Cerca de 28% dos atendimentos vêm sem convênio identificado na extração SQL (aparecem como "Convênio não identificado" abaixo) — gap na origem, não é erro de cálculo.</p>
+      <div class="month-picker" id="cortesiaMesPicker" style="margin-bottom:14px;"></div>
+      <div class="kpi-grid" id="kpiCortesias"></div>
+
+      <h3 style="font-family:'Fraunces',serif; font-size:15px; color:var(--slate); margin:24px 0 4px;">A verificar — cadastrado como "Cortesia" <span class="mono" id="confCount" style="font-size:12px; color:var(--stone); font-weight:400;"></span></h3>
+      <p class="note">Convênio cadastrado é "Cortesia", sem plano real registrado — confirmar qual é o plano correto do paciente antes de estimar valor.</p>
+      <div class="card" style="margin-bottom:20px;">
+        <div class="fluxo-scroll">
+        <table>
+          <thead><tr><th>Paciente</th><th>Data</th><th>Procedimento(s)</th></tr></thead>
+          <tbody id="confBody"></tbody>
+        </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>Ranking por convênio</h3>
+          <div class="sub">Valor estimado (referência Bradesco) e nº de pacientes</div>
+          <ul class="rank-list" id="listCortesiaConv"></ul>
+        </div>
+        <div class="card">
+          <div class="search-box">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="cortSearch" placeholder="Buscar paciente ou convênio…">
+          </div>
+          <div class="sub" style="margin-top:8px;">Detalhe — outros convênios <span class="mono" id="cortCount"></span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="fluxo-scroll">
+        <table>
+          <thead><tr><th>Paciente</th><th>Data</th><th>Convênio</th><th>Procedimento(s)</th><th style="text-align:right;">Valor estimado</th></tr></thead>
+          <tbody id="cortesiaBody"></tbody>
         </table>
         </div>
       </div>
@@ -434,7 +478,7 @@ async function carregarTudo(){
     fetchAll('demonstrativos_convenio', 'convenio,guia,situacao'),
     fetchAll('orcamento_itens', 'codigo,paciente,convenio,status,data_orcamento,descricao,valor,valor_total_desconto'),
     fetchAll('faturados_exames', 'ficha,conta,convenio,status_fat,paciente,data_atendimento,medico,procedimento,total_honorarios,data_vencimento,num_fatura'),
-    fetchAll('atendidos_geral', 'num_ficha,paciente,convenio,procedimento,data_atendimento'),
+    fetchAll('atendidos_geral', 'num_ficha,paciente,convenio,procedimento,data_atendimento,valor'),
   ]);
 
   bancoRows.forEach(r => BANCO_MAP[r.convenio] = r.banco);
@@ -498,6 +542,7 @@ async function carregarTudo(){
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
   processarPrevisao(faturadosParaDivergencias);
   processarMedicos(faturadosParaDivergencias);
+  processarCortesias(atendidosGeral);
   montarTabs();
   document.getElementById('tabs').style.display = '';
 }
@@ -1217,6 +1262,134 @@ function renderMedicosTab(){
   });
   const procMedicoTop = Object.entries(porProcMedico).sort((a,b)=>b[1].valor-a[1].valor).slice(0,10).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
   document.getElementById('listMedicoProc').innerHTML = rankListMedicoHtml(procMedicoTop, false);
+}
+
+// ==================== CORTESIA/RETORNO ====================
+// Porta o bloco "cortesias" do Painel local (computeFullDashboard, ~linha
+// 5013-5073): atendimentos com Valor=0. Convenio="Cortesia" (sem plano real)
+// vai pra "a verificar", sem valor estimado. Qualquer outro convenio com
+// valor=0 tem o valor estimado pelo HISTORICO DE PRECO DA BRADESCO (essa e'
+// a referencia unica que o Painel usa de verdade pra estimar - o texto da UI
+// la' fala em "plano do proprio paciente" mas o codigo so' usa Bradesco pra
+// todos os convenios, confirmado lendo findBradPrice()). Simplificacoes: sem
+// diff contra relatorio anterior (sem "novo"/"repete"), sem Tipo (Cortesia/
+// Retorno/Retorno Cirurgico - essa classificacao nao e' recalculada em
+// nenhum lugar que eu achei no Painel, so' existe pros dados congelados),
+// sem ranking por medico solicitante (Medico Solic. sempre vazio na
+// extracao SQL, ver extrair_atendidos_sql.py).
+function levRatio(a, b){
+  a = (a||'').toUpperCase(); b = (b||'').toUpperCase();
+  const m = a.length, n = b.length;
+  if (m===0 && n===0) return 1;
+  if (m===0 || n===0) return 0;
+  const dp = Array.from({length:m+1}, ()=>new Array(n+1).fill(0));
+  for (let i=0;i<=m;i++) dp[i][0]=i;
+  for (let j=0;j<=n;j++) dp[0][j]=j;
+  for (let i=1;i<=m;i++)
+    for (let j=1;j<=n;j++)
+      dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j-1],dp[i-1][j],dp[i][j-1]);
+  return 1 - dp[m][n]/Math.max(m,n);
+}
+function median(arr){
+  const s = [...arr].sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length % 2 ? s[mid] : (s[mid-1]+s[mid])/2;
+}
+
+let CORT_ITEMS = [];
+let CORT_MESES = [];
+let CORT_MES_ATUAL = 'Todos';
+
+function processarCortesias(atendidosRows){
+  const bradMap = {};
+  atendidosRows.forEach(r => {
+    if (stripAccents(r.convenio||'').toUpperCase().trim() !== 'BRADESCO SAUDE') return;
+    if (!r.valor) return;
+    const k = normKeyDiv(r.procedimento);
+    (bradMap[k] ||= []).push(r.valor);
+  });
+  const bradPriceTable = {};
+  Object.keys(bradMap).forEach(k => bradPriceTable[k] = median(bradMap[k]));
+  const bradKeys = Object.keys(bradPriceTable);
+  function findBradPrice(key){
+    if (bradPriceTable[key] !== undefined) return bradPriceTable[key];
+    let best = null, bestScore = 0;
+    bradKeys.forEach(k => { const s = levRatio(key,k); if (s>bestScore){bestScore=s;best=k;} });
+    return (best && bestScore >= 0.72) ? bradPriceTable[best] : 0;
+  }
+
+  const zeroRows = atendidosRows.filter(r => !r.valor);
+  // ~28% das linhas de atendidos_geral tem convenio EM BRANCO (achado real
+  // 02/09/2026, nao e' bug desta migracao - o LEFT JOIN com SFCEV030 na
+  // extracao SQL nao encontra match pra esses itens, ver extrair_atendidos_sql.py).
+  // Sem rotular, essas linhas dominavam o ranking por convenio como uma
+  // entrada "fantasma" sem nome.
+  CORT_ITEMS = zeroRows.filter(r => r.num_ficha && r.data_atendimento).map(r => {
+    const convenioRaw = (r.convenio||'').trim();
+    return {
+      paciente: titleCase(r.paciente), data: r.data_atendimento,
+      convenio: convenioRaw ? titleCase(convenioRaw) : '(Convênio não identificado)',
+      procedimento: titleCase(r.procedimento||''), mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+      valorEstimado: Math.round(findBradPrice(normKeyDiv(r.procedimento))*100)/100,
+      isCortesiaReal: stripAccents(convenioRaw).toUpperCase() === 'CORTESIA',
+      ficha: r.num_ficha,
+    };
+  });
+
+  function mesKeyCort(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
+  CORT_MESES = ['Todos', ...[...new Set(CORT_ITEMS.map(r=>r.mes))].sort((a,b)=>mesKeyCort(a)-mesKeyCort(b))];
+
+  const picker = document.getElementById('cortesiaMesPicker');
+  picker.innerHTML = CORT_MESES.map(m => `<button type="button" class="month-btn${m===CORT_MES_ATUAL?' active':''}" data-mes="${m}">${m}</button>`).join('');
+  picker.querySelectorAll('.month-btn').forEach(btn => btn.addEventListener('click', () => {
+    picker.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    CORT_MES_ATUAL = btn.dataset.mes;
+    renderCortesiasTab();
+  }));
+
+  document.getElementById('cortSearch').addEventListener('input', renderCortesiaOutrosLista);
+  renderCortesiasTab();
+}
+
+function renderCortesiasTab(){
+  const doMes = CORT_MES_ATUAL === 'Todos' ? CORT_ITEMS : CORT_ITEMS.filter(r => r.mes === CORT_MES_ATUAL);
+  const conf = doMes.filter(r => r.isCortesiaReal);
+  const outros = doMes.filter(r => !r.isCortesiaReal);
+  const totalEstimado = Math.round(outros.reduce((s,r)=>s+r.valorEstimado,0)*100)/100;
+  const nPacientes = new Set(outros.map(r=>r.ficha)).size;
+
+  document.getElementById('kpiCortesias').innerHTML = `
+    <div class="kpi alert selected"><label>Total estimado sem cobrança</label><div class="value">${fmtMoney(totalEstimado)}</div><div class="foot">${outros.length} item(ns), ${nPacientes} paciente(s)</div></div>
+    <div class="kpi"><label>A verificar ("Cortesia")</label><div class="value">${conf.length}</div><div class="foot">sem plano real registrado — valor não estimado</div></div>
+  `;
+
+  document.getElementById('confCount').textContent = conf.length + ' caso(s)';
+  document.getElementById('confBody').innerHTML = conf.map(d => `
+    <tr><td>${d.paciente}</td><td class="mono">${d.data.split('-').reverse().join('/')}</td><td>${d.procedimento}</td></tr>
+  `).join('') || '<tr><td colspan="3" style="text-align:center; color:var(--stone); padding:20px;">Nenhum caso neste período</td></tr>';
+
+  const porConv = {};
+  outros.forEach(r => { (porConv[r.convenio] ||= {valor:0, qtd:0, pac:new Set()}); porConv[r.convenio].valor += r.valorEstimado; porConv[r.convenio].qtd++; porConv[r.convenio].pac.add(r.ficha); });
+  const convTop = Object.entries(porConv).sort((a,b)=>b[1].valor-a[1].valor).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.pac.size}));
+  document.getElementById('listCortesiaConv').innerHTML = rankListHtml(convTop);
+
+  window.__cortOutros = outros;
+  renderCortesiaOutrosLista();
+}
+
+function renderCortesiaOutrosLista(){
+  const q = (document.getElementById('cortSearch').value || '').toLowerCase();
+  const list = (window.__cortOutros||[]).filter(r => !q || r.paciente.toLowerCase().includes(q) || r.convenio.toLowerCase().includes(q)).sort((a,b)=>b.valorEstimado-a.valorEstimado);
+  document.getElementById('cortCount').textContent = list.length + ' item(ns)';
+  document.getElementById('cortesiaBody').innerHTML = list.map(d => `
+    <tr>
+      <td>${d.paciente}</td>
+      <td class="mono">${d.data.split('-').reverse().join('/')}</td>
+      <td>${d.convenio}</td>
+      <td>${d.procedimento}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtMoney(d.valorEstimado)}</td>
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--stone); padding:20px;">Nenhum item neste período</td></tr>';
 }
 
 carregarTudo().catch(e => {
