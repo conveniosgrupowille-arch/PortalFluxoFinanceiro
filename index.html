@@ -107,6 +107,7 @@
   .rank-list .rl-nome{color:var(--slate-2);}
   .rank-list .rl-qtd{color:var(--stone); font-size:11px; margin-left:6px;}
   .rank-list .rl-valor{font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--teal-deep); white-space:nowrap;}
+  .rank-list li.rank-item.selected{background:var(--teal-soft); margin:0 -8px; padding-left:8px; padding-right:8px; border-radius:6px; border-bottom-color:transparent;}
   .search-box{display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin-bottom:12px; max-width:340px; background:#fff;}
   .search-box input{border:none; outline:none; font-family:'Inter',sans-serif; font-size:13px; width:100%; color:var(--slate);}
   .search-box svg{color:var(--stone); flex-shrink:0;}
@@ -128,6 +129,7 @@
   <div class="tabs" id="tabs" style="display:none;">
     <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Pagamentos</button>
     <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
+    <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
     <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
     <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
   </div>
@@ -165,6 +167,31 @@
           <tbody id="previsaoBody"></tbody>
         </table>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="panel-medicos" class="tab-panel" style="display:none;">
+    <section class="section" id="secMedicos" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Médicos &amp; Procedimentos</h2>
+      <p class="note">Ranking por valor faturado (bruto, sem desconto de imposto). Só Exames por enquanto. O drilldown de procedimentos por médico é calculado ao vivo (diferente do Painel local, onde esse detalhe fica congelado desde a última atualização manual).</p>
+      <div class="month-picker" id="medicosMesPicker" style="margin-bottom:14px;"></div>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Médicos</h3>
+          <div class="sub">Valor faturado, por médico executante</div>
+          <ul class="rank-list" id="listMedicos"></ul>
+        </div>
+        <div class="card">
+          <h3>Procedimentos mais faturados</h3>
+          <div class="sub">Exames e consultas, por valor total</div>
+          <ul class="rank-list" id="listProcedimentos"></ul>
+        </div>
+      </div>
+      <div class="card" id="medicoProcCard" style="display:none;">
+        <h3>Procedimentos — <span id="medicoProcNome" style="color:var(--teal-deep);"></span></h3>
+        <div class="sub">Mesmo mês selecionado acima · clique no médico de novo pra fechar</div>
+        <ul class="rank-list" id="listMedicoProc"></ul>
       </div>
     </section>
   </div>
@@ -470,6 +497,7 @@ async function carregarTudo(){
   processarOrcamento(orcamentoItens);
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
   processarPrevisao(faturadosParaDivergencias);
+  processarMedicos(faturadosParaDivergencias);
   montarTabs();
   document.getElementById('tabs').style.display = '';
 }
@@ -1105,6 +1133,90 @@ function renderPrevisaoTab(){
       <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--teal-deep);">${fmtMoney(it.recebido.valor)}</td>
       <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--amber);">${fmtMoney(it.glosado.valor)}</td>
     </tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:var(--stone); padding:20px;">Sem itens neste mês.</td></tr>';
+}
+
+// ==================== MÉDICOS & PROCEDIMENTOS ====================
+// Porta renderMedicos/by_medico_month/top_procedures do Painel local (dentro
+// de computeFullDashboard, ~linha 4742-4759). O drilldown por medico
+// (medico_procedures) NAO e' portado do jeito que o Painel faz - descobri
+// investigando o codigo que la' esse dado fica CONGELADO desde a ultima
+// atualizacao manual (Object.assign no fluxo automatico nunca inclui essa
+// chave, so' preserva o valor antigo) - em vez de replicar essa staleness,
+// calculo o drilldown ao vivo aqui mesmo, filtrando os mesmos dados que ja'
+// carreguei (mesma ideia do que fiz com Orcamento).
+function cleanDoc(d){
+  d = (d||'').trim();
+  if (d.startsWith('X - ')) d = d.slice(4);
+  if (d === 'CARLO G. DE C. WILLE') d = 'CARLO GUSTAVO DE CASTRO WILLE';
+  return d;
+}
+
+let MEDICOS_ROWS = [];
+let MEDICOS_MESES = [];
+let MEDICOS_MES_ATUAL = 'Todos';
+let MEDICOS_ABERTO = null;
+
+function processarMedicos(faturadosRows){
+  MEDICOS_ROWS = faturadosRows.filter(r => r.data_atendimento && r.medico).map(r => ({
+    medico: titleCase(cleanDoc(r.medico)), procedimento: titleCase((r.procedimento||'').slice(0,55)),
+    valor: r.total_honorarios || 0, mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+  }));
+
+  function mesKeyMed(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
+  MEDICOS_MESES = ['Todos', ...[...new Set(MEDICOS_ROWS.map(r=>r.mes))].sort((a,b)=>mesKeyMed(a)-mesKeyMed(b))];
+
+  const picker = document.getElementById('medicosMesPicker');
+  picker.innerHTML = MEDICOS_MESES.map(m => `<button type="button" class="month-btn${m===MEDICOS_MES_ATUAL?' active':''}" data-mes="${m}">${m}</button>`).join('');
+  picker.querySelectorAll('.month-btn').forEach(btn => btn.addEventListener('click', () => {
+    picker.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    MEDICOS_MES_ATUAL = btn.dataset.mes;
+    MEDICOS_ABERTO = null;
+    renderMedicosTab();
+  }));
+
+  renderMedicosTab();
+}
+
+function rankListMedicoHtml(items, onClick){
+  return items.map((it,i) => `<li class="rank-item${onClick && MEDICOS_ABERTO===it.nome ? ' selected' : ''}" data-nome="${it.nome.replace(/"/g,'&quot;')}" style="${onClick?'cursor:pointer;':''}"><span class="rl-nome">${it.nome}<span class="rl-qtd">${it.qtd} itens</span></span><span class="rl-valor">${fmtMoney(it.valor)}</span></li>`).join('')
+    || '<li><span class="rl-nome">Nenhum item</span></li>';
+}
+
+function renderMedicosTab(){
+  const rowsDoMes = MEDICOS_MES_ATUAL === 'Todos' ? MEDICOS_ROWS : MEDICOS_ROWS.filter(r => r.mes === MEDICOS_MES_ATUAL);
+
+  const porMedico = {};
+  rowsDoMes.forEach(r => { (porMedico[r.medico] ||= {valor:0, qtd:0}); porMedico[r.medico].valor += r.valor; porMedico[r.medico].qtd++; });
+  const medicosTop = Object.entries(porMedico).filter(([,v])=>v.valor>0).sort((a,b)=>b[1].valor-a[1].valor).slice(0,10)
+    .map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
+
+  document.getElementById('listMedicos').innerHTML = rankListMedicoHtml(medicosTop, true);
+  document.querySelectorAll('#listMedicos .rank-item').forEach(li => {
+    li.addEventListener('click', () => {
+      const nome = li.dataset.nome;
+      MEDICOS_ABERTO = (MEDICOS_ABERTO === nome) ? null : nome;
+      renderMedicosTab();
+      if (MEDICOS_ABERTO) document.getElementById('medicoProcCard').scrollIntoView({behavior:'smooth', block:'nearest'});
+    });
+  });
+
+  const porProc = {};
+  rowsDoMes.forEach(r => { if (!r.procedimento) return; (porProc[r.procedimento] ||= {valor:0, qtd:0}); porProc[r.procedimento].valor += r.valor; porProc[r.procedimento].qtd++; });
+  const procTop = Object.entries(porProc).sort((a,b)=>b[1].valor-a[1].valor).slice(0,8).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
+  document.getElementById('listProcedimentos').innerHTML = rankListMedicoHtml(procTop, false);
+
+  const card = document.getElementById('medicoProcCard');
+  if (!MEDICOS_ABERTO) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('medicoProcNome').textContent = MEDICOS_ABERTO;
+  const porProcMedico = {};
+  rowsDoMes.filter(r => r.medico === MEDICOS_ABERTO).forEach(r => {
+    if (!r.procedimento) return;
+    (porProcMedico[r.procedimento] ||= {valor:0, qtd:0}); porProcMedico[r.procedimento].valor += r.valor; porProcMedico[r.procedimento].qtd++;
+  });
+  const procMedicoTop = Object.entries(porProcMedico).sort((a,b)=>b[1].valor-a[1].valor).slice(0,10).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
+  document.getElementById('listMedicoProc').innerHTML = rankListMedicoHtml(procMedicoTop, false);
 }
 
 carregarTudo().catch(e => {
