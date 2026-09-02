@@ -29,6 +29,7 @@
   .brand{display:flex; align-items:center; gap:14px; position:relative; z-index:2;}
   .brand .name{font-family:'Fraunces',serif; font-weight:600; font-size:19px; line-height:1.15;}
   .brand .sub{font-size:11.5px; color:rgba(255,255,255,0.72); letter-spacing:0.02em; margin-top:2px;}
+  .brand .sync{font-family:'IBM Plex Mono',monospace; font-size:11px; color:rgba(255,255,255,0.85); margin-top:8px;}
 
   .wrap{max-width:1400px; margin:0 auto; padding:32px 40px 80px;}
   h2{font-family:'Fraunces',serif; font-weight:600; font-size:19px; margin:0 0 4px; color:var(--teal-deep);}
@@ -71,6 +72,7 @@
     <div>
       <div class="name">Portal Fluxo Financeiro</div>
       <div class="sub">Instituto de Olhos Dr. Carlo Wille — dados ao vivo, direto do Supabase</div>
+      <div class="sync" id="ultimaAtualizacao">Última atualização: —</div>
     </div>
   </div>
 </div>
@@ -222,9 +224,38 @@ async function fetchAll(tabela, colunas){
   return tudo;
 }
 
+// Mostra quando os dados BRUTOS foram sincronizados pela ultima vez (pedido
+// do usuario 02/09/2026) - usa o mais recente "atualizado_em" entre as
+// tabelas que a sincronizacao automatica (sincronizar_supabase.py) re-escreve
+// a cada rodada do "Atualizar dados" do Painel local. Nao trava o carregamento
+// principal (roda em paralelo, sem await no chamador).
+async function carregarUltimaAtualizacao(){
+  const el = document.getElementById('ultimaAtualizacao');
+  try {
+    const tabelas = ['faturados_exames', 'faturados_cirurgias', 'repasse_medico', 'demonstrativos_convenio'];
+    const resultados = await Promise.all(tabelas.map(t =>
+      sb.from(t).select('atualizado_em').order('atualizado_em', { ascending: false }).limit(1)
+    ));
+    const datas = resultados
+      .map(r => r.data && r.data[0] && r.data[0].atualizado_em)
+      .filter(Boolean)
+      .map(s => new Date(s));
+    if (!datas.length) { el.textContent = 'Última atualização: indisponível'; return; }
+    const maisRecente = new Date(Math.max(...datas));
+    const fmt = maisRecente.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+    el.textContent = `Última atualização: ${fmt}`;
+  } catch (e) {
+    el.textContent = 'Última atualização: indisponível';
+  }
+}
+
 async function carregarTudo(){
   const status = document.getElementById('statusCarregamento');
   status.textContent = 'Carregando dados do Supabase…';
+  carregarUltimaAtualizacao();
 
   const [
     exames, cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos,
