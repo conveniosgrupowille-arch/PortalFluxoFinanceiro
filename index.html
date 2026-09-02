@@ -90,6 +90,7 @@
   .tag.invest{background:#FDF0DD; color:var(--amber);}
   .tag.diff{background:var(--teal-soft); color:var(--teal-deep);}
   .kpi-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:24px;}
+  .kpi-grid.cols-4{grid-template-columns:repeat(4,1fr);}
   .kpi{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px; cursor:pointer;}
   .kpi.selected{border-color:var(--teal); box-shadow:0 0 0 2px var(--teal-soft) inset;}
   .kpi label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone); margin-bottom:6px;}
@@ -126,6 +127,7 @@
 
   <div class="tabs" id="tabs" style="display:none;">
     <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Pagamentos</button>
+    <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
     <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
     <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
   </div>
@@ -147,6 +149,23 @@
       <p class="note">Data de vencimento real, dia a dia.</p>
       <div class="month-picker" id="fluxoMesPicker"></div>
       <div id="fluxoContainer"></div>
+    </section>
+  </div>
+
+  <div id="panel-previsao" class="tab-panel" style="display:none;">
+    <section class="section" id="secPrevisao" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Previsão</h2>
+      <p class="note">Por convênio, mês de atendimento (não de vencimento) — o que foi faturado naquele lote, quanto já foi recebido, quanto ainda não foi faturado. Só Exames por enquanto (Cirurgias entra depois).</p>
+      <div class="month-picker" id="previsaoMesPicker" style="margin-bottom:14px;"></div>
+      <div class="kpi-grid cols-4" id="kpiPrevisao"></div>
+      <div class="card">
+        <div class="fluxo-scroll">
+        <table>
+          <thead><tr><th>Convênio</th><th style="text-align:right;">Itens</th><th style="text-align:right;">Faturado (aguardando)</th><th style="text-align:right;">Não faturado</th><th style="text-align:right;">Recebido</th><th style="text-align:right;">Glosado</th></tr></thead>
+          <tbody id="previsaoBody"></tbody>
+        </table>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -387,7 +406,7 @@ async function carregarTudo(){
     fetchAll('cnpj_convenio', '*'),
     fetchAll('demonstrativos_convenio', 'convenio,guia,situacao'),
     fetchAll('orcamento_itens', 'codigo,paciente,convenio,status,data_orcamento,descricao,valor,valor_total_desconto'),
-    fetchAll('faturados_exames', 'ficha,conta,convenio,status_fat,paciente,data_atendimento,medico,procedimento,total_honorarios'),
+    fetchAll('faturados_exames', 'ficha,conta,convenio,status_fat,paciente,data_atendimento,medico,procedimento,total_honorarios,data_vencimento,num_fatura'),
     fetchAll('atendidos_geral', 'num_ficha,paciente,convenio,procedimento,data_atendimento'),
   ]);
 
@@ -450,6 +469,7 @@ async function carregarTudo(){
 
   processarOrcamento(orcamentoItens);
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
+  processarPrevisao(faturadosParaDivergencias);
   montarTabs();
   document.getElementById('tabs').style.display = '';
 }
@@ -997,6 +1017,94 @@ function renderDivergenciasLista(){
       document.getElementById('pendArrow-'+row.dataset.idx).textContent = aberto ? '▸' : '▾';
     });
   });
+}
+
+// ==================== PREVISÃO ====================
+// Porta a "Previsão por convênio, mês a mês" do Painel local (dentro de
+// computeFullDashboard, ~linha 4799-4862) - agrupa por MES DE ATENDIMENTO
+// (nao vencimento, de propósito: e' rastreio de lote/coorte - "o que
+// faturamos no mes X, quanto recebemos, quanto ficou pendente" precisa ficar
+// no mesmo mes, ver comentario extenso no Painel). Reusa isEfetivamenteRecebido/
+// isGlosado/impostoPctParaRow/DIRECT_PAY, ja' portados pro Fluxo/Divergencias.
+// So' Exames por enquanto - faturados_cirurgias ainda nao tem data_atendimento
+// migrada (so' data_vencimento), fica pra quando/se precisar.
+let PREVISAO_POR_MES = {};
+let PREVISAO_MESES = [];
+let PREVISAO_MES_ATUAL = null;
+
+function processarPrevisao(faturadosRows){
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const hojeISO = hoje.toISOString().slice(0,10);
+
+  const rows = faturadosRows.filter(r => r.data_atendimento).map(r => ({
+    convenio: normalizeConvenio(r.convenio), statusFat: r.status_fat || '',
+    mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+    valorFinal: r.total_honorarios || 0, dataVencimento: r.data_vencimento,
+    backfillPagamento: r.num_fatura ? (window.BACKFILL_BY_CHAVE||{})['Exames|' + r.num_fatura] : null,
+  }));
+
+  function mesKeyPrev(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
+  PREVISAO_MESES = [...new Set(rows.map(r=>r.mes))].sort((a,b)=>mesKeyPrev(a)-mesKeyPrev(b));
+
+  PREVISAO_POR_MES = {};
+  PREVISAO_MESES.forEach(mes => {
+    const doMes = rows.filter(r => r.mes === mes);
+    const byConv = {};
+    doMes.forEach(r => { (byConv[r.convenio] ||= []).push(r); });
+    const sumVal = list => Math.round(list.reduce((s,r)=>s+(r.valorFinal||0)*(1-impostoPctParaRow(r)),0)*100)/100;
+    const items = Object.entries(byConv).map(([conv, rs]) => {
+      const isDireto = DIRECT_PAY.includes(conv.toUpperCase());
+      const diretoRows = isDireto ? rs : [];
+      const naoFaturadoRows = !isDireto ? rs.filter(r => r.statusFat !== 'Faturado') : [];
+      const faturadoTodasRows = !isDireto ? rs.filter(r => r.statusFat === 'Faturado') : [];
+      const recebidoRows = faturadoTodasRows.filter(r => isEfetivamenteRecebido(r, hojeISO)).concat(diretoRows);
+      const glosadoRows = faturadoTodasRows.filter(r => isGlosado(r));
+      const faturadoAguardRows = faturadoTodasRows.filter(r => !isEfetivamenteRecebido(r, hojeISO) && !isGlosado(r));
+      return {
+        nome: titleCase(conv), itens: rs.length,
+        faturado: { valor: sumVal(faturadoAguardRows), itens: faturadoAguardRows.length },
+        naoFaturado: { valor: sumVal(naoFaturadoRows), itens: naoFaturadoRows.length },
+        recebido: { valor: sumVal(recebidoRows), itens: recebidoRows.length },
+        glosado: { valor: sumVal(glosadoRows), itens: glosadoRows.length },
+      };
+    }).sort((a,b) => (b.faturado.valor+b.naoFaturado.valor+b.recebido.valor) - (a.faturado.valor+a.naoFaturado.valor+a.recebido.valor));
+    PREVISAO_POR_MES[mes] = items;
+  });
+
+  const picker = document.getElementById('previsaoMesPicker');
+  PREVISAO_MES_ATUAL = PREVISAO_MESES[PREVISAO_MESES.length-1];
+  picker.innerHTML = PREVISAO_MESES.map(m => `<button type="button" class="month-btn${m===PREVISAO_MES_ATUAL?' active':''}" data-mes="${m}">${m}</button>`).join('');
+  picker.querySelectorAll('.month-btn').forEach(btn => btn.addEventListener('click', () => {
+    picker.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    PREVISAO_MES_ATUAL = btn.dataset.mes;
+    renderPrevisaoTab();
+  }));
+
+  renderPrevisaoTab();
+}
+
+function renderPrevisaoTab(){
+  const items = PREVISAO_POR_MES[PREVISAO_MES_ATUAL] || [];
+  const totalFaturado = items.reduce((s,i)=>s+i.faturado.valor,0);
+  const totalNaoFaturado = items.reduce((s,i)=>s+i.naoFaturado.valor,0);
+  const totalRecebido = items.reduce((s,i)=>s+i.recebido.valor,0);
+  const totalGlosado = items.reduce((s,i)=>s+i.glosado.valor,0);
+  document.getElementById('kpiPrevisao').innerHTML = `
+    <div class="kpi selected"><label>Faturado (aguardando)</label><div class="value">${fmtMoney(totalFaturado)}</div></div>
+    <div class="kpi alert"><label>Não faturado</label><div class="value">${fmtMoney(totalNaoFaturado)}</div></div>
+    <div class="kpi"><label>Recebido</label><div class="value" style="color:var(--teal-deep);">${fmtMoney(totalRecebido)}</div></div>
+    <div class="kpi alert"><label>Glosado</label><div class="value">${fmtMoney(totalGlosado)}</div></div>
+  `;
+  document.getElementById('previsaoBody').innerHTML = items.map(it => `
+    <tr>
+      <td>${it.nome}</td>
+      <td style="text-align:right;">${it.itens}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtMoney(it.faturado.valor)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--amber);">${fmtMoney(it.naoFaturado.valor)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--teal-deep);">${fmtMoney(it.recebido.valor)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--amber);">${fmtMoney(it.glosado.valor)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:var(--stone); padding:20px;">Sem itens neste mês.</td></tr>';
 }
 
 carregarTudo().catch(e => {
