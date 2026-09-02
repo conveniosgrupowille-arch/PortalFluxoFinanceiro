@@ -4,51 +4,80 @@
 <meta charset="utf-8">
 <title>Portal Fluxo Financeiro</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
+  /* Mesmos tokens/tipografia do Painel local (Painel_Faturamento_2026.html)
+     - pedido do usuario 02/09/2026, "o layout nao veio igual ao painel". */
   :root{
-    --paper:#F4F5F1; --paper-raised:#FFFFFF; --ink:#1B211D; --ink-soft:#565F5A;
-    --line:#DBDFD8; --teal:#0F766E; --teal-deep:#0B5C55; --teal-wash:#E4F1EF;
-    --amber:#9C6B14;
+    --teal:#1FA79E; --teal-dark:#12746D; --teal-deep:#0B4C48; --teal-soft:#CFEAE7;
+    --slate:#33383C; --slate-2:#4A5054; --stone:#868C8F; --line:#DEDDD8;
+    --panel:#EDECE7; --paper:#F6F5F1; --white:#FFFFFF; --amber:#9C6B14;
   }
   *{box-sizing:border-box;}
-  body{margin:0; background:var(--paper); color:var(--ink); font-family:system-ui,-apple-system,sans-serif;}
-  .wrap{max-width:1400px; margin:0 auto; padding:28px 24px 80px;}
-  header{margin-bottom:24px;}
-  h1{font-size:22px; margin:0 0 4px;}
-  .sub{color:var(--ink-soft); font-size:13px; margin:0;}
-  h2{font-size:17px; margin:0 0 4px;}
-  .note{color:var(--ink-soft); font-size:12.5px; margin:0 0 16px;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--paper); color:var(--slate); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .display{font-family:'Fraunces',serif;}
+
+  .topbar{
+    background:linear-gradient(120deg, var(--teal-deep) 0%, var(--teal-dark) 55%, var(--teal) 130%);
+    color:#fff; padding:26px 40px 30px; position:relative; overflow:hidden;
+  }
+  .topbar::after{content:""; position:absolute; right:-60px; top:-90px; width:280px; height:280px; border-radius:50%; border:1px solid rgba(255,255,255,0.14);}
+  .brand{display:flex; align-items:center; gap:14px; position:relative; z-index:2;}
+  .brand .name{font-family:'Fraunces',serif; font-weight:600; font-size:19px; line-height:1.15;}
+  .brand .sub{font-size:11.5px; color:rgba(255,255,255,0.72); letter-spacing:0.02em; margin-top:2px;}
+
+  .wrap{max-width:1400px; margin:0 auto; padding:32px 40px 80px;}
+  h2{font-family:'Fraunces',serif; font-weight:600; font-size:19px; margin:0 0 4px; color:var(--teal-deep);}
+  .note{color:var(--stone); font-size:12.5px; margin:0 0 16px; line-height:1.5;}
   .filtros{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
-  select{padding:9px 14px; border-radius:8px; border:1px solid var(--line); font-size:13px; min-width:200px; background:#fff; font-family:inherit;}
+  select{padding:9px 14px; border-radius:8px; border:1px solid var(--line); font-size:13px; min-width:200px; background:#fff; font-family:'Inter',sans-serif; color:var(--slate);}
   .month-picker{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;}
-  .month-btn{padding:7px 14px; border-radius:20px; border:1px solid var(--line); background:#fff; font-size:12.5px; cursor:pointer; font-family:inherit;}
+  .month-btn{padding:7px 14px; border-radius:20px; border:1px solid var(--line); background:#fff; font-size:12.5px; cursor:pointer; font-family:'Inter',sans-serif; color:var(--slate-2); font-weight:600;}
   .month-btn.active{background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);}
   table{width:100%; border-collapse:collapse; font-size:12.5px;}
-  th,td{padding:7px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap;}
-  th{font-size:10.5px; text-transform:uppercase; color:var(--ink-soft); font-weight:600;}
-  .fluxo-scroll{overflow-x:auto; margin-bottom:32px; background:var(--paper-raised); border-radius:12px; padding:14px; border:1px solid var(--line);}
+  th,td{padding:8px 12px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap;}
+  th{font-family:'IBM Plex Mono',monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone); font-weight:600;}
+  /* fluxo-table: mesmo esquema do Painel local (linhas/colunas apertadas,
+     sem barra de rolagem - so' 15/16 dias por quinzena cabem na tela). */
+  table.fluxo-table{border-collapse:collapse; table-layout:auto; width:100%; margin-bottom:8px;}
+  table.fluxo-table th, table.fluxo-table td{padding:5px 7px; font-size:10.5px; text-align:right; border-bottom:1px dotted var(--line); border-right:1px dotted var(--line); white-space:nowrap;}
+  table.fluxo-table thead th{border-bottom:1px solid var(--line);}
+  table.fluxo-table th:last-child, table.fluxo-table td:last-child{border-right:none;}
+  table.fluxo-table th:first-child, table.fluxo-table td:first-child{text-align:left; min-width:150px; border-right:1px solid var(--line); white-space:normal;}
+  table.fluxo-table th{color:var(--slate); font-weight:700; font-size:9.5px; text-transform:uppercase; text-align:center;}
+  table.fluxo-table th:first-child{text-align:left;}
+  table.fluxo-table td.fluxo-total, table.fluxo-table th.fluxo-total{font-weight:700; background:var(--panel); width:100px; font-size:10px;}
+  table.fluxo-table tr.fluxo-total-row td{font-weight:700; background:#FBF4D9; border-top:2px solid var(--line);}
+  table.fluxo-table tr.fluxo-total-row td:first-child{background:#FBF4D9;}
+  .fluxo-quinzena{background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03);}
+  .fluxo-scroll{overflow-x:auto; background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03);}
   .fluxo-recebido{color:var(--teal-deep); font-weight:600;}
   .fluxo-a-receber{color:var(--amber); font-weight:600;}
-  .fluxo-total{background:var(--teal-wash); font-weight:700;}
-  .banco-tag{font-size:10.5px; color:var(--ink-soft); font-style:italic; margin-left:4px;}
-  input[type=text]{width:90px; padding:4px 7px; border:1px solid var(--line); border-radius:6px; font-family:inherit; font-size:12px;}
-  input[type=checkbox]{width:16px; height:16px; cursor:pointer;}
-  .section{margin-top:36px; padding-top:20px; border-top:1px solid var(--line);}
-  .status{font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;}
-  .mono{font-family:monospace; font-size:11.5px;}
+  .fluxo-total{background:var(--teal-soft); font-weight:700;}
+  .banco-tag{font-size:10.5px; color:var(--stone); font-style:italic; margin-left:4px;}
+  input[type=text]{width:90px; padding:4px 7px; border:1px solid var(--line); border-radius:6px; font-family:'Inter',sans-serif; font-size:12px;}
+  input[type=checkbox]{width:16px; height:16px; cursor:pointer; accent-color:var(--teal-deep);}
+  .section{margin-top:36px; padding-top:24px; border-top:1px solid var(--line);}
+  .status{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--stone); margin-bottom:18px;}
 </style>
 </head>
 <body>
+<div class="topbar">
+  <div class="brand">
+    <div>
+      <div class="name">Portal Fluxo Financeiro</div>
+      <div class="sub">Instituto de Olhos Dr. Carlo Wille — dados ao vivo, direto do Supabase</div>
+    </div>
+  </div>
+</div>
 <div class="wrap">
-  <header>
-    <h1>Portal Fluxo Financeiro</h1>
-    <p class="sub">Instituto de Olhos Dr. Carlo Wille — dados ao vivo, direto do Supabase.</p>
-  </header>
-
   <div id="statusCarregamento" class="status">Carregando dados…</div>
 
-  <section class="section" id="secConfBanco" style="display:none;">
+  <section class="section" id="secConfBanco" style="display:none; margin-top:0; padding-top:0; border-top:none;">
     <h2>Conferência por banco</h2>
     <p class="note">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
     <div class="filtros">
@@ -375,6 +404,49 @@ function montarMonthPicker(){
   }));
 }
 
+// Pedido do usuario 02/09/2026 ("quero exatamente igual sem barra de
+// rolagem, quero 1 quinzena e segunda quinzena") - mesma divisao do Painel
+// local (tabelaQuinzena): 2 tabelas separadas (dias 1-15 e 16-fim do mes) em
+// vez de uma tabela unica com todos os dias, o que sozinho ja evita precisar
+// de scroll horizontal na maioria das telas.
+function tabelaQuinzenaHtml(titulo, porDia, diaIni, diaFim, mesNum){
+  const dias = []; for (let d=diaIni; d<=diaFim; d++) dias.push(d);
+  const conveniosDaQuinzena = Object.keys(porDia).filter(conv =>
+    dias.some(d => somaStatusVal(porDia[conv][d]) > 0)
+  ).sort((a,b) => {
+    const diasA = dias.filter(d=>somaStatusVal(porDia[a][d])>0);
+    const diasB = dias.filter(d=>somaStatusVal(porDia[b][d])>0);
+    return Math.min(...diasA) - Math.min(...diasB);
+  });
+  if (!conveniosDaQuinzena.length) return '';
+  let html = `<h3 style="font-family:'Fraunces',serif; font-weight:600; font-size:15px; margin:0 0 8px; color:var(--slate);">${titulo}</h3><table class="fluxo-table"><thead><tr><th>Convênio</th>`;
+  dias.forEach(d => html += `<th>${String(d).padStart(2,'0')}/${String(mesNum).padStart(2,'0')}</th>`);
+  html += '<th class="fluxo-total">Total</th></tr></thead><tbody>';
+  const totalPorDia = {};
+  conveniosDaQuinzena.forEach(conv => {
+    const banco = bancoConvenioLabel(conv);
+    html += `<tr><td>${conv}${banco?` <span class="banco-tag">${banco}</span>`:''}</td>`;
+    let totalLinha = {recebido:0, aReceber:0};
+    dias.forEach(d => {
+      const v = porDia[conv][d];
+      (totalPorDia[d] ||= {recebido:0, aReceber:0});
+      if (v) { totalPorDia[d].recebido += v.recebido||0; totalPorDia[d].aReceber += v.aReceber||0; totalLinha.recebido += v.recebido||0; totalLinha.aReceber += v.aReceber||0; }
+      html += celulaHtml(v);
+    });
+    html += celulaHtml(totalLinha).replace('<td','<td class="fluxo-total"') + '</tr>';
+  });
+  let totalGeral = {recebido:0, aReceber:0};
+  html += '<tr class="fluxo-total-row"><td>Total</td>';
+  dias.forEach(d => {
+    const v = totalPorDia[d] || {recebido:0,aReceber:0};
+    totalGeral.recebido += v.recebido; totalGeral.aReceber += v.aReceber;
+    html += celulaHtml(v);
+  });
+  html += celulaHtml(totalGeral).replace('<td','<td class="fluxo-total"') + '</tr>';
+  html += '</tbody></table>';
+  return html;
+}
+
 function renderFluxo(){
   const container = document.getElementById('fluxoContainer');
   if (!FLUXO_MES_ATUAL) { container.innerHTML = ''; return; }
@@ -382,30 +454,11 @@ function renderFluxo(){
   const [mesNome, anoCurto] = FLUXO_MES_ATUAL.split('/');
   const mesNum = MES_ORDER.indexOf(mesNome)+1;
   const diasNoMes = new Date(2000+parseInt(anoCurto,10), mesNum, 0).getDate();
-  const convenios = Object.keys(porDia).filter(c => Object.values(porDia[c]).some(v=>somaStatusVal(v)>0))
-    .sort((a,b) => {
-      const diasA = Object.entries(porDia[a]).filter(([d,v])=>somaStatusVal(v)>0).map(([d])=>+d);
-      const diasB = Object.entries(porDia[b]).filter(([d,v])=>somaStatusVal(v)>0).map(([d])=>+d);
-      return Math.min(...diasA) - Math.min(...diasB);
-    });
-  if (!convenios.length) { container.innerHTML = '<p class="note">Nada faturado nesse mês.</p>'; return; }
-
-  let html = '<div class="fluxo-scroll"><table><thead><tr><th>Convênio</th>';
-  for (let d=1; d<=diasNoMes; d++) html += `<th>${String(d).padStart(2,'0')}/${String(mesNum).padStart(2,'0')}</th>`;
-  html += '<th>Total</th></tr></thead><tbody>';
-  convenios.forEach(conv => {
-    const banco = bancoConvenioLabel(conv);
-    html += `<tr><td>${conv}${banco?` <span class="banco-tag">${banco}</span>`:''}</td>`;
-    let total = {recebido:0, aReceber:0};
-    for (let d=1; d<=diasNoMes; d++) {
-      const v = porDia[conv][d];
-      if (v) { total.recebido += v.recebido||0; total.aReceber += v.aReceber||0; }
-      html += celulaHtml(v);
-    }
-    html += celulaHtml(total).replace('<td','<td class="fluxo-total"') + '</tr>';
-  });
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
+  const temAlgo = Object.keys(porDia).some(c => Object.values(porDia[c]).some(v=>somaStatusVal(v)>0));
+  if (!temAlgo) { container.innerHTML = '<p class="note">Nada faturado nesse mês.</p>'; return; }
+  container.innerHTML =
+    '<div class="fluxo-quinzena">' + tabelaQuinzenaHtml('1ª Quinzena', porDia, 1, 15, mesNum) + '</div>' +
+    '<div class="fluxo-quinzena" style="margin-top:20px;">' + tabelaQuinzenaHtml('2ª Quinzena', porDia, 16, diasNoMes, mesNum) + '</div>';
 }
 
 // ==================== CONFERENCIA POR BANCO ====================
