@@ -142,8 +142,21 @@
 
   <div id="panel-fluxo" class="tab-panel">
     <section class="section" id="secConfBanco" style="display:none; margin-top:0; padding-top:0; border-top:none;">
-      <h2>Conferência por banco</h2>
-      <p class="note">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>Conferência por banco</h2>
+          <p class="note" style="margin-bottom:4px;">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
+        </div>
+        <div class="export-wrap" style="position:relative;">
+          <button type="button" class="month-btn" id="btnExportarConfBanco" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
+          <div id="exportMenuConfBanco" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.08); padding:6px; min-width:160px; z-index:10;">
+            <button type="button" class="export-opt" data-formato="imagem">🖼️ Imagem (PNG)</button>
+            <button type="button" class="export-opt" data-formato="pdf">📄 PDF</button>
+            <button type="button" class="export-opt" data-formato="excel">📊 Excel</button>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:-4px;">A exportação inclui só o mês selecionado no filtro abaixo (ou todos os meses, se "Todos os meses" estiver selecionado).</p>
       <div class="filtros">
         <select id="filtroBanco"><option value="">Selecione um banco…</option></select>
         <select id="filtroConvenio"><option value="">Selecione um convênio…</option></select>
@@ -755,7 +768,7 @@ function montarExportFluxo(){
   btn.addEventListener('click', (e) => { e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? '' : 'none'; });
   menu.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', () => { menu.style.display = 'none'; });
-  document.querySelectorAll('.export-opt').forEach(opt => {
+  menu.querySelectorAll('.export-opt').forEach(opt => {
     opt.addEventListener('click', async () => {
       menu.style.display = 'none';
       const formato = opt.dataset.formato;
@@ -940,6 +953,74 @@ function renderConfBanco(){
     elBaixado.addEventListener('change', salvar);
   });
 }
+
+// ==================== EXPORTAR CONFERÊNCIA POR BANCO (Imagem/PDF/Excel) ====================
+// Mesmo padrao do exportar Fluxo de Pagamentos acima, aplicado a' secao "Conferencia por
+// banco" - exporta so' o mes escolhido no filtroMes (ou tudo, se "Todos os meses").
+function nomeArquivoMesConfBanco(){
+  const mesAlvo = document.getElementById('filtroMes').value;
+  return mesAlvo ? mesAlvo.replace('/', '-') : 'todos-os-meses';
+}
+async function capturarConfBancoCanvas(){
+  return await html2canvas(document.getElementById('confBancoContainer'), { backgroundColor: '#F6F5F1', scale: 2 });
+}
+async function exportarConfBancoImagem(){
+  const canvas = await capturarConfBancoCanvas();
+  canvas.toBlob(blob => baixarBlobComoArquivo(blob, `conferencia_banco_${nomeArquivoMesConfBanco()}.png`));
+}
+async function exportarConfBancoPDF(){
+  const canvas = await capturarConfBancoCanvas();
+  const { jsPDF } = window.jspdf;
+  const larguraMM = 280;
+  const alturaMM = larguraMM * canvas.height / canvas.width;
+  const pdf = new jsPDF({ orientation: alturaMM > larguraMM ? 'portrait' : 'landscape', unit: 'mm', format: [larguraMM, alturaMM] });
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, larguraMM, alturaMM);
+  pdf.save(`conferencia_banco_${nomeArquivoMesConfBanco()}.pdf`);
+}
+function exportarConfBancoExcel(){
+  const bancoAlvo = document.getElementById('filtroBanco').value;
+  const convenioAlvo = document.getElementById('filtroConvenio').value;
+  const mesAlvo = document.getElementById('filtroMes').value;
+  const linhas = montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo);
+  const header = ['CNPJ', 'Convênio', 'Mês', 'Data prevista', 'Valor previsto', 'Valor real', 'Data real', 'Confirmado', 'Nº Fatura', 'Baixado Clinic'];
+  const corpo = linhas.map(l => [
+    cnpjConvenioLabel(l.conv) || '', l.conv, l.mes, l.dataPrevistaStr, l.valorPrevisto,
+    l.valorReal || '', l.dataReal || '', l.confirmado ? 'Sim' : 'Não', l.numFatura || '', l.baixadoClinic ? 'Sim' : 'Não',
+  ]);
+  const wb = XLSX.utils.book_new();
+  const aoa = corpo.length ? [header, ...corpo] : [header, ['Sem dados neste filtro.']];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Conferência por banco');
+  XLSX.writeFile(wb, `conferencia_banco_${nomeArquivoMesConfBanco()}.xlsx`);
+}
+function montarExportConfBanco(){
+  const btn = document.getElementById('btnExportarConfBanco');
+  const menu = document.getElementById('exportMenuConfBanco');
+  btn.addEventListener('click', (e) => { e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? '' : 'none'; });
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  menu.querySelectorAll('.export-opt').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      menu.style.display = 'none';
+      if (!document.getElementById('confBancoContainer').innerHTML.trim()) {
+        alert('Escolha um banco e/ou convênio antes de exportar.');
+        return;
+      }
+      const formato = opt.dataset.formato;
+      const original = opt.textContent;
+      opt.textContent = 'Gerando…';
+      try {
+        if (formato === 'imagem') await exportarConfBancoImagem();
+        else if (formato === 'pdf') await exportarConfBancoPDF();
+        else exportarConfBancoExcel();
+      } catch (e) {
+        alert('Não consegui exportar: ' + e.message);
+      } finally {
+        opt.textContent = original;
+      }
+    });
+  });
+}
+montarExportConfBanco();
 
 function montarFiltroBanco(){
   const bancos = [...new Set(Object.values(BANCO_MAP))].sort((a,b)=>a.localeCompare(b));
