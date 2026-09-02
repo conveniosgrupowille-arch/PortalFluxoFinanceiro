@@ -487,16 +487,27 @@ function renderConfBanco(){
     const elConf = tr.querySelector('.v-conf'), elReal = tr.querySelector('.v-real'),
           elData = tr.querySelector('.v-data'), elFatura = tr.querySelector('.v-fatura'),
           elBaixado = tr.querySelector('.v-baixado');
+    // Debounce por linha (achado real 01/09/2026): marcar o checkbox e digitar
+    // a fatura em seguida disparava 2 salvamentos assincronos em paralelo -
+    // como sao requisicoes de rede de verdade (nao localhost), a resposta do
+    // PRIMEIRO podia chegar DEPOIS do segundo e sobrescrever o campo que
+    // acabou de ser preenchido com valor vazio. So' salva de verdade 400ms
+    // depois da ULTIMA mudanca nessa linha, sempre lendo o estado atual dos
+    // campos (nao o que estava no momento do evento).
+    let debounceTimer = null;
     const salvar = () => {
-      const dataDigitada = elData.value.trim();
-      let dataRealISO = null;
-      if (dataDigitada) { const [d,m,a]=dataDigitada.split('/'); if(d&&m&&a) dataRealISO = `${a}-${m}-${d}`; }
-      const valorReal = elReal.value.trim() ? parseFloat(elReal.value.trim().replace(/\./g,'').replace(',','.')) : null;
-      salvarConfirmacao({
-        chave, confirmado: elConf.checked, valorPrevisto: l.valorPrevisto, valorReal,
-        dataReal: dataDigitada, dataRealISO, numFatura: elFatura.value.trim(), baixadoClinic: elBaixado.checked,
-      });
+      clearTimeout(debounceTimer);
       tr.style.background = elConf.checked ? 'var(--teal-wash)' : '';
+      debounceTimer = setTimeout(() => {
+        const dataDigitada = elData.value.trim();
+        let dataRealISO = null;
+        if (dataDigitada) { const [d,m,a]=dataDigitada.split('/'); if(d&&m&&a) dataRealISO = `${a}-${m}-${d}`; }
+        const valorReal = elReal.value.trim() ? parseFloat(elReal.value.trim().replace(/\./g,'').replace(',','.')) : null;
+        salvarConfirmacao({
+          chave, confirmado: elConf.checked, valorPrevisto: l.valorPrevisto, valorReal,
+          dataReal: dataDigitada, dataRealISO, numFatura: elFatura.value.trim(), baixadoClinic: elBaixado.checked,
+        });
+      }, 400);
     };
     elConf.addEventListener('change', salvar);
     elReal.addEventListener('change', salvar);
