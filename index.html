@@ -64,6 +64,34 @@
   input[type=checkbox]{width:16px; height:16px; cursor:pointer; accent-color:var(--teal-deep);}
   .section{margin-top:36px; padding-top:24px; border-top:1px solid var(--line);}
   .status{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--stone); margin-bottom:18px;}
+  /* Tabs (02/09/2026, primeira aba nova alem de Fluxo de Pagamentos - pedido
+     do usuario "quero todas as abas tambem") - mesma logica visual do Painel
+     local (.tabs/.tab-btn), so' que aqui cada aba e' uma <section> mostrada/
+     escondida via JS em vez de <div class="panel">. */
+  .tabs{display:flex; gap:4px; flex-wrap:wrap; background:var(--teal-deep); border-radius:12px; padding:6px; margin-bottom:28px;}
+  .tab-btn{padding:9px 16px; border-radius:8px; border:none; background:transparent; color:rgba(255,255,255,0.72); font-family:'Inter',sans-serif; font-weight:600; font-size:13px; cursor:pointer;}
+  .tab-btn:hover{color:#fff; background:rgba(255,255,255,0.08);}
+  .tab-btn.active{background:#fff; color:var(--teal-deep);}
+  .kpi-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:24px;}
+  .kpi{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px; cursor:pointer;}
+  .kpi.selected{border-color:var(--teal); box-shadow:0 0 0 2px var(--teal-soft) inset;}
+  .kpi label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone); margin-bottom:6px;}
+  .kpi .value{font-family:'Fraunces',serif; font-weight:600; font-size:22px; color:var(--teal-deep);}
+  .kpi .foot{font-size:11px; color:var(--stone); margin-top:6px;}
+  .kpi.alert .value{color:var(--amber);}
+  .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;}
+  .card{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:18px;}
+  .card h3{margin:0 0 2px; font-family:'Fraunces',serif; font-size:15px; color:var(--slate);}
+  .card .sub{font-size:11.5px; color:var(--stone); margin-bottom:12px;}
+  .rank-list{list-style:none; margin:0; padding:0;}
+  .rank-list li{display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px dotted var(--line); font-size:12.5px;}
+  .rank-list li:last-child{border-bottom:none;}
+  .rank-list .rl-nome{color:var(--slate-2);}
+  .rank-list .rl-qtd{color:var(--stone); font-size:11px; margin-left:6px;}
+  .rank-list .rl-valor{font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--teal-deep); white-space:nowrap;}
+  .search-box{display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin-bottom:12px; max-width:340px; background:#fff;}
+  .search-box input{border:none; outline:none; font-family:'Inter',sans-serif; font-size:13px; width:100%; color:var(--slate);}
+  .search-box svg{color:var(--stone); flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -79,23 +107,73 @@
 <div class="wrap">
   <div id="statusCarregamento" class="status">Carregando dados…</div>
 
-  <section class="section" id="secConfBanco" style="display:none; margin-top:0; padding-top:0; border-top:none;">
-    <h2>Conferência por banco</h2>
-    <p class="note">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
-    <div class="filtros">
-      <select id="filtroBanco"><option value="">Selecione um banco…</option></select>
-      <select id="filtroConvenio"><option value="">Selecione um convênio…</option></select>
-      <select id="filtroMes"><option value="">Todos os meses</option></select>
-    </div>
-    <div id="confBancoContainer"></div>
-  </section>
+  <div class="tabs" id="tabs" style="display:none;">
+    <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Pagamentos</button>
+    <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
+  </div>
 
-  <section class="section" id="secFluxo" style="display:none;">
-    <h2>Fluxo de pagamentos</h2>
-    <p class="note">Data de vencimento real, dia a dia.</p>
-    <div class="month-picker" id="fluxoMesPicker"></div>
-    <div id="fluxoContainer"></div>
-  </section>
+  <div id="panel-fluxo" class="tab-panel">
+    <section class="section" id="secConfBanco" style="display:none; margin-top:0; padding-top:0; border-top:none;">
+      <h2>Conferência por banco</h2>
+      <p class="note">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
+      <div class="filtros">
+        <select id="filtroBanco"><option value="">Selecione um banco…</option></select>
+        <select id="filtroConvenio"><option value="">Selecione um convênio…</option></select>
+        <select id="filtroMes"><option value="">Todos os meses</option></select>
+      </div>
+      <div id="confBancoContainer"></div>
+    </section>
+
+    <section class="section" id="secFluxo" style="display:none;">
+      <h2>Fluxo de pagamentos</h2>
+      <p class="note">Data de vencimento real, dia a dia.</p>
+      <div class="month-picker" id="fluxoMesPicker"></div>
+      <div id="fluxoContainer"></div>
+    </section>
+  </div>
+
+  <div id="panel-orcamento" class="tab-panel" style="display:none;">
+    <section class="section" id="secOrcamento" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Orçamento</h2>
+      <p class="note">Orçamentos do ano, direto da extração automática (sempre atualizado — não depende de upload manual).</p>
+      <div class="month-picker" id="orcamentoMesPicker" style="margin-bottom:14px;"></div>
+      <div class="kpi-grid" id="kpiOrcamento"></div>
+      <button type="button" id="orcLimparFiltro" class="month-btn" style="display:none; margin-bottom:20px;">&times; Limpar filtro, ver tudo</button>
+
+      <div id="orcMiddleSections">
+        <div class="grid-2">
+          <div class="card">
+            <h3>Por status</h3>
+            <div class="sub">Valor orçado, por situação</div>
+            <ul class="rank-list" id="listOrcamentoStatus"></ul>
+          </div>
+          <div class="card">
+            <h3>Por convênio</h3>
+            <div class="sub">Valor orçado, por fonte pagadora</div>
+            <ul class="rank-list" id="listOrcamentoConvenio"></ul>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3>Procedimentos mais orçados</h3>
+          <div class="sub">Tipos de exame/cirurgia com maior valor somado</div>
+          <ul class="rank-list" id="listOrcamentoProc"></ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="search-box">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="orcSearch" placeholder="Buscar paciente ou convênio…">
+        </div>
+        <div class="fluxo-scroll">
+        <table>
+          <thead><tr><th>Nº</th><th>Paciente</th><th>Convênio</th><th>Status</th><th>Procedimento(s)</th><th style="text-align:right;">Valor</th></tr></thead>
+          <tbody id="orcBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </section>
+  </div>
 </div>
 
 <script>
@@ -258,7 +336,7 @@ async function carregarTudo(){
   carregarUltimaAtualizacao();
 
   const [
-    exames, cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos,
+    exames, cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos, orcamentoItens,
   ] = await Promise.all([
     fetchAll('faturados_exames', 'convenio,data_vencimento,total_honorarios,num_fatura'),
     fetchAll('faturados_cirurgias', 'convenio,data_vencimento,valor_conta,num_fatura'),
@@ -269,6 +347,7 @@ async function carregarTudo(){
     fetchAll('banco_convenio', '*'),
     fetchAll('cnpj_convenio', '*'),
     fetchAll('demonstrativos_convenio', 'convenio,guia,situacao'),
+    fetchAll('orcamento_itens', 'codigo,paciente,convenio,status,data_orcamento,descricao,valor,valor_total_desconto'),
   ]);
 
   bancoRows.forEach(r => BANCO_MAP[r.convenio] = r.banco);
@@ -327,6 +406,22 @@ async function carregarTudo(){
   montarMonthPicker();
   FLUXO_MES_ATUAL = MESES_DISPONIVEIS[MESES_DISPONIVEIS.length-1];
   renderFluxo();
+
+  processarOrcamento(orcamentoItens);
+  montarTabs();
+  document.getElementById('tabs').style.display = '';
+}
+
+// ==================== TABS ====================
+function montarTabs(){
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+      document.getElementById('panel-' + btn.dataset.tab).style.display = '';
+    });
+  });
 }
 
 // ==================== CALCULO DO FLUXOGRAMA ====================
@@ -612,6 +707,111 @@ function montarFiltroBanco(){
 function montarFiltroMesConfBanco(){
   document.getElementById('filtroMes').innerHTML = '<option value="">Todos os meses</option>' + MESES_DISPONIVEIS.map(m=>`<option value="${m}">${m}</option>`).join('');
   document.getElementById('filtroMes').addEventListener('change', renderConfBanco);
+}
+
+// ==================== ORÇAMENTO ====================
+// Diferente do Orcamento do Painel local (que depende de upload MANUAL de um
+// PDF - a sincronizacao automatica "Atualizar dados" nunca alimenta essa aba
+// la', ver aplicarNovosDados(...,orcamentoRecs=null,...) no fluxo automatico
+// do Painel), aqui o Orcamento vem direto de orcamento_itens no Supabase,
+// que E' sincronizado automaticamente (migrar_orcamento.py, dentro de
+// sincronizar_supabase.py) - fica sempre fresco.
+let ORCAMENTOS = [];
+let ORC_MESES_DISPONIVEIS = [];
+let ORC_MES_ATUAL = 'Todos';
+let ORC_STATUS_FILTRO = null;
+
+const ORC_STATUS_ORDEM = ['Aprovado', 'Aguardando', 'Agendado', 'Não Aprovado'];
+
+function processarOrcamento(itens){
+  const porCodigo = {};
+  itens.forEach(it => {
+    if (!it.codigo) return;
+    (porCodigo[it.codigo] ||= {
+      codigo: it.codigo, paciente: titleCase(it.paciente), convenio: normalizeConvenio(it.convenio) || 'Não identificado',
+      status: it.status || '?', dataOrcamento: it.data_orcamento,
+      valor: it.valor_total_desconto || 0, procedimentos: [],
+    });
+    if (it.descricao) porCodigo[it.codigo].procedimentos.push(titleCase(it.descricao));
+  });
+  ORCAMENTOS = Object.values(porCodigo);
+
+  const mesesSet = new Set();
+  ORCAMENTOS.forEach(o => { if (o.dataOrcamento) { o.mes = mesLabelFromDate(parseDateISO(o.dataOrcamento)); mesesSet.add(o.mes); } });
+  function mesKeyOrc(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
+  ORC_MESES_DISPONIVEIS = [...mesesSet].sort((a,b)=>mesKeyOrc(a)-mesKeyOrc(b));
+
+  const picker = document.getElementById('orcamentoMesPicker');
+  picker.innerHTML = ['Todos', ...ORC_MESES_DISPONIVEIS].map(m =>
+    `<button type="button" class="month-btn${m===ORC_MES_ATUAL?' active':''}" data-mes="${m}">${m}</button>`
+  ).join('');
+  picker.querySelectorAll('.month-btn').forEach(btn => btn.addEventListener('click', () => {
+    picker.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    ORC_MES_ATUAL = btn.dataset.mes;
+    renderOrcamentoTab();
+  }));
+
+  document.getElementById('orcSearch').addEventListener('input', renderOrcamentoDetalhe);
+  document.getElementById('orcLimparFiltro').addEventListener('click', () => { ORC_STATUS_FILTRO = null; renderOrcamentoTab(); });
+
+  renderOrcamentoTab();
+}
+
+function rankListHtml(items){
+  return items.map(it => `<li><span class="rl-nome">${it.nome}<span class="rl-qtd">${it.qtd}</span></span><span class="rl-valor">${fmtMoney(it.valor)}</span></li>`).join('')
+    || '<li><span class="rl-nome">Nenhum item</span></li>';
+}
+
+function renderOrcamentoTab(){
+  const base = ORC_MES_ATUAL === 'Todos' ? ORCAMENTOS : ORCAMENTOS.filter(o => o.mes === ORC_MES_ATUAL);
+
+  const totalOrcado = Math.round(base.reduce((s,o)=>s+o.valor,0)*100)/100;
+  const porStatus = {};
+  base.forEach(o => { (porStatus[o.status] ||= {valor:0, qtd:0}); porStatus[o.status].valor += o.valor; porStatus[o.status].qtd++; });
+  const statFind = s => porStatus[s] || {valor:0, qtd:0};
+
+  document.getElementById('kpiOrcamento').innerHTML = `
+    <div class="kpi selected"><label>Total orçado</label><div class="value">${fmtMoney(totalOrcado)}</div><div class="foot">${base.length} orçamento(s)</div></div>
+    <div class="kpi"><label>Aprovados</label><div class="value">${fmtMoney(statFind('Aprovado').valor)}</div><div class="foot">${statFind('Aprovado').qtd} orçamento(s)</div></div>
+    <div class="kpi alert"><label>Aguardando decisão</label><div class="value">${fmtMoney(statFind('Aguardando').valor)}</div><div class="foot">${statFind('Aguardando').qtd} orçamento(s) — maior potencial de receita futura</div></div>
+  `;
+
+  const porStatusOrdenado = ORC_STATUS_ORDEM.filter(s => porStatus[s]).map(s => ({nome:s, valor: Math.round(porStatus[s].valor*100)/100, qtd: porStatus[s].qtd}));
+  Object.keys(porStatus).forEach(s => { if (!ORC_STATUS_ORDEM.includes(s)) porStatusOrdenado.push({nome:s, valor: Math.round(porStatus[s].valor*100)/100, qtd: porStatus[s].qtd}); });
+  document.getElementById('listOrcamentoStatus').innerHTML = rankListHtml(porStatusOrdenado);
+
+  const porConv = {};
+  base.forEach(o => { (porConv[o.convenio] ||= {valor:0, qtd:0}); porConv[o.convenio].valor += o.valor; porConv[o.convenio].qtd++; });
+  const convOrdenado = Object.entries(porConv).sort((a,b)=>b[1].valor-a[1].valor);
+  const convTop = convOrdenado.slice(0,10).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
+  const outrosV = convOrdenado.slice(10).reduce((s,[,v])=>s+v.valor,0);
+  if (outrosV > 0) convTop.push({nome:'Outros', valor: Math.round(outrosV*100)/100, qtd: convOrdenado.slice(10).reduce((s,[,v])=>s+v.qtd,0)});
+  document.getElementById('listOrcamentoConvenio').innerHTML = rankListHtml(convTop);
+
+  const porProc = {};
+  base.forEach(o => o.procedimentos.forEach(p => { (porProc[p] ||= {valor:0, qtd:0}); porProc[p].valor += o.valor / (o.procedimentos.length||1); porProc[p].qtd++; }));
+  const procTop = Object.entries(porProc).sort((a,b)=>b[1].valor-a[1].valor).slice(0,12).map(([nome,v])=>({nome, valor: Math.round(v.valor*100)/100, qtd:v.qtd}));
+  document.getElementById('listOrcamentoProc').innerHTML = rankListHtml(procTop);
+
+  window.__orcBase = base;
+  renderOrcamentoDetalhe();
+}
+
+function renderOrcamentoDetalhe(){
+  const q = (document.getElementById('orcSearch').value || '').toLowerCase();
+  const list = (window.__orcBase || [])
+    .filter(o => !q || o.paciente.toLowerCase().includes(q) || o.convenio.toLowerCase().includes(q))
+    .sort((a,b) => b.valor - a.valor);
+  document.getElementById('orcBody').innerHTML = list.map(o => `
+    <tr>
+      <td class="mono">${o.codigo}</td>
+      <td>${o.paciente}</td>
+      <td>${o.convenio}</td>
+      <td>${o.status}</td>
+      <td>${o.procedimentos.join('; ') || '-'}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtMoney(o.valor)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" style="color:var(--stone);">Nenhum orçamento encontrado.</td></tr>';
 }
 
 carregarTudo().catch(e => {
