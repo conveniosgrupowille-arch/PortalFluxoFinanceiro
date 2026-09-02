@@ -4,17 +4,499 @@
 <meta charset="utf-8">
 <title>Portal Fluxo Financeiro</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
-  body{font-family:system-ui,sans-serif; background:#F7F5EF; color:#2B2B26; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0;}
-  .box{text-align:center; padding:40px;}
-  h1{font-size:20px; margin-bottom:8px;}
-  p{color:#8A8478; font-size:14px;}
+  :root{
+    --paper:#F4F5F1; --paper-raised:#FFFFFF; --ink:#1B211D; --ink-soft:#565F5A;
+    --line:#DBDFD8; --teal:#0F766E; --teal-deep:#0B5C55; --teal-wash:#E4F1EF;
+    --amber:#9C6B14;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:system-ui,-apple-system,sans-serif;}
+  .wrap{max-width:1400px; margin:0 auto; padding:28px 24px 80px;}
+  header{margin-bottom:24px;}
+  h1{font-size:22px; margin:0 0 4px;}
+  .sub{color:var(--ink-soft); font-size:13px; margin:0;}
+  h2{font-size:17px; margin:0 0 4px;}
+  .note{color:var(--ink-soft); font-size:12.5px; margin:0 0 16px;}
+  .filtros{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
+  select{padding:9px 14px; border-radius:8px; border:1px solid var(--line); font-size:13px; min-width:200px; background:#fff; font-family:inherit;}
+  .month-picker{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;}
+  .month-btn{padding:7px 14px; border-radius:20px; border:1px solid var(--line); background:#fff; font-size:12.5px; cursor:pointer; font-family:inherit;}
+  .month-btn.active{background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);}
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th,td{padding:7px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap;}
+  th{font-size:10.5px; text-transform:uppercase; color:var(--ink-soft); font-weight:600;}
+  .fluxo-scroll{overflow-x:auto; margin-bottom:32px; background:var(--paper-raised); border-radius:12px; padding:14px; border:1px solid var(--line);}
+  .fluxo-recebido{color:var(--teal-deep); font-weight:600;}
+  .fluxo-a-receber{color:var(--amber); font-weight:600;}
+  .fluxo-total{background:var(--teal-wash); font-weight:700;}
+  .banco-tag{font-size:10.5px; color:var(--ink-soft); font-style:italic; margin-left:4px;}
+  input[type=text]{width:90px; padding:4px 7px; border:1px solid var(--line); border-radius:6px; font-family:inherit; font-size:12px;}
+  input[type=checkbox]{width:16px; height:16px; cursor:pointer;}
+  .section{margin-top:36px; padding-top:20px; border-top:1px solid var(--line);}
+  .status{font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;}
+  .mono{font-family:monospace; font-size:11.5px;}
 </style>
 </head>
 <body>
-  <div class="box">
+<div class="wrap">
+  <header>
     <h1>Portal Fluxo Financeiro</h1>
-    <p>Em construção.</p>
-  </div>
+    <p class="sub">Instituto de Olhos Dr. Carlo Wille — dados ao vivo, direto do Supabase.</p>
+  </header>
+
+  <div id="statusCarregamento" class="status">Carregando dados…</div>
+
+  <section class="section" id="secConfBanco" style="display:none;">
+    <h2>Conferência por banco</h2>
+    <p class="note">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
+    <div class="filtros">
+      <select id="filtroBanco"><option value="">Selecione um banco…</option></select>
+      <select id="filtroConvenio"><option value="">Selecione um convênio…</option></select>
+      <select id="filtroMes"><option value="">Todos os meses</option></select>
+    </div>
+    <div id="confBancoContainer"></div>
+  </section>
+
+  <section class="section" id="secFluxo" style="display:none;">
+    <h2>Fluxo de pagamentos</h2>
+    <p class="note">Data de vencimento real, dia a dia.</p>
+    <div class="month-picker" id="fluxoMesPicker"></div>
+    <div id="fluxoContainer"></div>
+  </section>
+</div>
+
+<script>
+const SUPABASE_URL = "https://ylalexswpruqfvinkhdl.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Gj4D217YeW_puPB9ynf16g_shx1Oo9n";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const MES_ORDER = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const MES_NOMES = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'};
+
+function stripAccents(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function titleCase(s){ return String(s||'').toLowerCase().replace(/(^|\s|\/)([a-zà-ÿ])/g, (m,p1,p2)=>p1+p2.toUpperCase()); }
+function fmtMoney(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function parseDateISO(s){ if(!s) return null; const [a,m,d]=s.split('-'); return new Date(+a,+m-1,+d); }
+function mesLabelFromDate(d){ return MES_NOMES[d.getMonth()+1] + '/' + String(d.getFullYear()).slice(2); }
+
+// ---- Imposto por convenio (copiado do Painel local, 31/08/2026) ----
+const UNIMED_IMPOSTO_PCT = 0.08;
+const IMPOSTO_PCT_POR_CONVENIO = {
+  'BRADESCO SAUDE': 0.0615, 'LEVMED SAUDE': 0.0615, 'NOSSA SAUDE OPERADORA DE PLANOS': 0.0615,
+  'AMIL SAUDE': 0.0456, 'SC SAUDE': 0.048, 'SAUDE CAIXA': 0.1145, 'LABORE SAUDE': 0.0465,
+};
+function impostoPctConvenio(conv){ return IMPOSTO_PCT_POR_CONVENIO[conv] || 0; }
+function impostoPctParaRow(r){
+  if (r.convenio === 'UNIMED') return UNIMED_IMPOSTO_PCT;
+  if (r.convenio === 'SC SAUDE') {
+    const desc = String(r.desc||'').toUpperCase();
+    return desc.includes('CONSULTA') ? 0.012 : 0.048;
+  }
+  return impostoPctConvenio(r.convenio);
+}
+
+function isUnimed(r){ return stripAccents(r.convenio).toUpperCase().trim() === 'UNIMED'; }
+function isAmil(r){ return stripAccents(r.convenio).toUpperCase().trim().replace(/\s+/g,' ') === 'AMIL SAUDE'; }
+function isBradesco(r){ return stripAccents(r.convenio).toUpperCase().trim().replace(/\s+/g,' ') === 'BRADESCO SAUDE'; }
+
+function isGlosado(r){
+  if (isUnimed(r)) return !!(r.demonstrativoPagamento && r.demonstrativoPagamento.situacao === 'Glosado');
+  if (isAmil(r)) return !!(r.demonstrativoPagamento && r.demonstrativoPagamento.situacao === 'Glosado');
+  if (isBradesco(r) && r.demonstrativoPagamento) return r.demonstrativoPagamento.situacao === 'Glosado';
+  return false;
+}
+
+// Versao simplificada de isEfetivamenteRecebido (ver Painel local pra logica
+// completa com Repasse Medico) - aqui usa so' backfill (prioridade maxima) +
+// demonstrativo por guia (Unimed/Amil/Bradesco), sempre com a trava de
+// vencimento futuro (achado real 31/08/2026, Amil aparecendo "recebido" pra
+// vencimento ainda no futuro).
+function isEfetivamenteRecebido(r, hoje){
+  if (r.backfillPagamento) return true;
+  const vencFuturo = !!(r.dataVencimento && r.dataVencimento > hoje);
+  if ((isUnimed(r) || isAmil(r) || isBradesco(r)) && vencFuturo) return false;
+  if (r.demonstrativoPagamento) {
+    return r.demonstrativoPagamento.situacao === 'Recebido';
+  }
+  return false;
+}
+
+// ---- Bradesco: lotes quinzenais (corte 15/30), pagos ~45 dias depois -----
+const BRADESCO_LOTES = [
+  {mesFaturaOrigem:'Jan/26', corte:30, valorFaturado:19057.29, mesVencimento:'Mar/26', diaVencimento:15},
+  {mesFaturaOrigem:'Fev/26', corte:15, valorFaturado:9526.29,  mesVencimento:'Mar/26', diaVencimento:30},
+  {mesFaturaOrigem:'Fev/26', corte:30, valorFaturado:43785.70, mesVencimento:'Abr/26', diaVencimento:15},
+  {mesFaturaOrigem:'Mar/26', corte:30, valorFaturado:39461.56, mesVencimento:'Mai/26', diaVencimento:15},
+  {mesFaturaOrigem:'Abr/26', corte:30, valorFaturado:48543.04, mesVencimento:'Jun/26', diaVencimento:15},
+  {mesFaturaOrigem:'Mai/26', corte:30, valorFaturado:33554.47, mesVencimento:'Jul/26', diaVencimento:15},
+  {mesFaturaOrigem:'Jun/26', corte:15, valorFaturado:9147.96,  mesVencimento:'Jul/26', diaVencimento:30},
+  {mesFaturaOrigem:'Jun/26', corte:30, valorFaturado:49550.87, mesVencimento:'Ago/26', diaVencimento:15},
+  {mesFaturaOrigem:'Jul/26', corte:15, valorFaturado:9064.08,  mesVencimento:'Ago/26', diaVencimento:30},
+  {mesFaturaOrigem:'Jul/26', corte:30, valorFaturado:18890.64, mesVencimento:'Set/26', diaVencimento:15},
+  {mesFaturaOrigem:'Ago/26', corte:15, valorFaturado:7087.72,  mesVencimento:'Set/26', diaVencimento:30},
+  {mesFaturaOrigem:'Ago/26', corte:30, valorFaturado:33100.35, mesVencimento:'Out/26', diaVencimento:15},
+];
+const BRADESCO_MESES_COM_PROJECAO = new Set(['Mar/26','Abr/26','Mai/26','Jun/26','Jul/26','Ago/26']);
+
+function computeBradescoLedger(eventos){
+  const lotes = BRADESCO_LOTES.map(l => ({...l, recebido:0}));
+  eventos.sort((a,b)=> a.dt - b.dt);
+  eventos.forEach(ev => {
+    let restante = ev.valor;
+    for (const l of lotes) {
+      if (restante <= 0.005) break;
+      const saldo = Math.round((l.valorFaturado - l.recebido)*100)/100;
+      if (saldo <= 0.005) continue;
+      const aplicar = Math.min(restante, saldo);
+      l.recebido = Math.round((l.recebido + aplicar)*100)/100;
+      restante = Math.round((restante - aplicar)*100)/100;
+    }
+  });
+  return lotes;
+}
+
+// ==================== ESTADO GLOBAL ====================
+let ROWS = [];              // linhas normalizadas (exames + cirurgias)
+let CORRECOES = {};         // "Convenio|Mes" -> [{dia, iocw, hub, status}]
+let CONFIRMACOES = {};      // chave -> registro
+let BANCO_MAP = {}, CNPJ_MAP = {};
+let MESES_DISPONIVEIS = [];
+let FLUXO_MES_ATUAL = null;
+
+function bancoConvenioLabel(nome){ return BANCO_MAP[stripAccents(nome).toUpperCase().trim().replace(/\s+/g,' ')] || null; }
+function cnpjConvenioLabel(nome){ return CNPJ_MAP[stripAccents(nome).toUpperCase().trim().replace(/\s+/g,' ')] || null; }
+
+async function carregarTudo(){
+  const status = document.getElementById('statusCarregamento');
+  status.textContent = 'Carregando dados do Supabase…';
+
+  const [
+    exames, cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos,
+  ] = await Promise.all([
+    sb.from('faturados_exames').select('convenio,data_vencimento,total_honorarios,num_fatura,data').then(r=>r.data||[]),
+    sb.from('faturados_cirurgias').select('convenio,data_vencimento,valor_conta,num_fatura,data').then(r=>r.data||[]),
+    sb.from('recebimentos_backfill').select('*').then(r=>r.data||[]),
+    sb.from('recebimentos_extra').select('*').then(r=>r.data||[]),
+    sb.from('correcoes_confirmadas').select('*').then(r=>r.data||[]),
+    sb.from('confirmacoes_banco').select('*').then(r=>r.data||[]),
+    sb.from('banco_convenio').select('*').then(r=>r.data||[]),
+    sb.from('cnpj_convenio').select('*').then(r=>r.data||[]),
+    sb.from('demonstrativos_convenio').select('convenio,guia,situacao').then(r=>r.data||[]),
+  ]);
+
+  bancoRows.forEach(r => BANCO_MAP[r.convenio] = r.banco);
+  cnpjRows.forEach(r => CNPJ_MAP[r.convenio] = r.cnpj);
+
+  const backfillByFatura = {};
+  backfill.forEach(b => { backfillByFatura[b.chave] = b; });
+  window.RECEBIMENTOS_EXTRA = extra;
+  window.BACKFILL_BY_CHAVE = backfillByFatura;
+
+  const demonstrativoByGuia = {};
+  demonstrativos.forEach(d => { if (d.guia) demonstrativoByGuia[d.convenio + '|' + d.guia] = d; });
+
+  ROWS = [];
+  exames.forEach(r => {
+    if (!r.convenio || !r.data_vencimento) return;
+    const conv = r.convenio.trim();
+    ROWS.push({
+      convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.total_honorarios || 0,
+      backfillPagamento: r.num_fatura ? backfillByFatura['Exames|' + r.num_fatura] : null,
+      entidade: 'iocw',
+    });
+  });
+  cirurgias.forEach(r => {
+    if (!r.convenio || !r.data_vencimento) return;
+    const conv = r.convenio.trim();
+    ROWS.push({
+      convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valor_conta || 0,
+      backfillPagamento: r.num_fatura ? backfillByFatura['Cirurgias|' + r.num_fatura] : null,
+      entidade: 'hub',
+    });
+  });
+
+  CORRECOES = {};
+  correcoes.forEach(c => {
+    const chave = c.convenio + '|' + c.mes;
+    (CORRECOES[chave] ||= []).push(c);
+  });
+
+  CONFIRMACOES = {};
+  confirmacoes.forEach(c => { CONFIRMACOES[c.chave] = c; });
+
+  const mesesSet = new Set();
+  ROWS.forEach(r => { if (r.dataVencimento) mesesSet.add(mesLabelFromDate(parseDateISO(r.dataVencimento))); });
+  Object.values(CORRECOES).flat().forEach(c => mesesSet.add(c.mes));
+  function mesKey(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
+  MESES_DISPONIVEIS = [...mesesSet].filter(m=>m.endsWith('/26')).sort((a,b)=>mesKey(a)-mesKey(b));
+
+  status.textContent = `Carregado: ${ROWS.length.toLocaleString('pt-BR')} contas, ${MESES_DISPONIVEIS.length} meses disponíveis.`;
+
+  montarFiltroBanco();
+  montarFiltroMesConfBanco();
+  document.getElementById('secConfBanco').style.display = '';
+  document.getElementById('secFluxo').style.display = '';
+  montarMonthPicker();
+  FLUXO_MES_ATUAL = MESES_DISPONIVEIS[MESES_DISPONIVEIS.length-1];
+  renderFluxo();
+}
+
+// ==================== CALCULO DO FLUXOGRAMA ====================
+function getFluxoPagamentoMes(mes){
+  const porDia = {};
+  const somaStatus = (a,b) => ({
+    recebido: Math.round(((a.recebido||0)+(b.recebido||0))*100)/100,
+    aReceber: Math.round(((a.aReceber||0)+(b.aReceber||0))*100)/100,
+  });
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const hojeISO = hoje.toISOString().slice(0,10);
+
+  ROWS.forEach(r => {
+    const dataRecebReal = r.backfillPagamento && r.backfillPagamento.data_recebimento;
+    const vd = parseDateISO(dataRecebReal || r.dataVencimento);
+    if (!vd) return;
+    const lab = mesLabelFromDate(vd);
+    if (lab !== mes) return;
+    const dia = vd.getDate();
+    const conv = titleCase(r.convenio);
+    const valor = r.backfillPagamento ? (r.backfillPagamento.valor_recebido||0)
+                  : Math.round((r.valorFinal||0)*(1-impostoPctParaRow(r))*100)/100;
+    const recebido = isEfetivamenteRecebido(r, hojeISO);
+    const alvo = recebido ? 'recebido' : 'aReceber';
+    (porDia[conv] ||= {});
+    porDia[conv][dia] = somaStatus(porDia[conv][dia] || {recebido:0,aReceber:0}, {[alvo]: valor});
+  });
+
+  // recebimentos_extra (aplicados via variavel global EXTRA, carregada 1x)
+  (window.RECEBIMENTOS_EXTRA||[]).forEach(e => {
+    const lab = mesLabelFromDate(parseDateISO(e.data_pagamento));
+    if (lab !== mes) return;
+    const conv = titleCase(e.convenio);
+    const dia = parseDateISO(e.data_pagamento).getDate();
+    (porDia[conv] ||= {});
+    porDia[conv][dia] = somaStatus(porDia[conv][dia] || {recebido:0,aReceber:0}, {recebido: e.valor||0});
+  });
+
+  // meses fechados: tudo que sobrou "a receber" vira recebido
+  const MESES_FECHADOS = new Set(['Jan/26','Fev/26','Mar/26','Abr/26','Mai/26','Jun/26','Jul/26']);
+  if (MESES_FECHADOS.has(mes)) {
+    Object.values(porDia).forEach(dias => Object.keys(dias).forEach(dia => {
+      const v = dias[dia];
+      if (v.aReceber) { v.recebido = Math.round((v.recebido+v.aReceber)*100)/100; v.aReceber = 0; }
+    }));
+  }
+
+  // correcoes_confirmadas
+  Object.entries(CORRECOES).forEach(([chave, entradas]) => {
+    const [conv, mesCorrigido] = chave.split('|');
+    if (mesCorrigido !== mes) return;
+    const novoPorDia = {};
+    entradas.forEach(c => {
+      const total = Math.round((c.iocw + c.hub)*100)/100;
+      const alvo = c.status === 'aReceber' ? 'aReceber' : 'recebido';
+      (novoPorDia[c.dia] ||= {recebido:0, aReceber:0});
+      novoPorDia[c.dia][alvo] = Math.round((novoPorDia[c.dia][alvo] + total)*100)/100;
+    });
+    porDia[conv] = novoPorDia;
+  });
+
+  // Bradesco: lotes (so' pra meses com projecao habilitada)
+  if (BRADESCO_LOTES.some(l => l.mesVencimento === mes)) {
+    const doMes = BRADESCO_LOTES.filter(l => l.mesVencimento === mes);
+    const comProjecao = BRADESCO_MESES_COM_PROJECAO.has(mes);
+    let ledger = null;
+    if (comProjecao) {
+      const eventos = [];
+      (window.RECEBIMENTOS_EXTRA||[]).forEach(e => { if (e.convenio.toUpperCase().includes('BRADESCO')) eventos.push({dt: parseDateISO(e.data_pagamento), valor: e.valor}); });
+      Object.values(window.BACKFILL_BY_CHAVE||{}).forEach(b => { if (b.convenio.toUpperCase().includes('BRADESCO')) eventos.push({dt: parseDateISO(b.data_recebimento), valor: b.valor_recebido}); });
+      ledger = computeBradescoLedger(eventos);
+    }
+    const dataVenc = (label, dia) => { const [n,a]=label.split('/'); return new Date(2000+parseInt(a,10), MES_ORDER.indexOf(n), dia); };
+    const novoPorDia = {};
+    doMes.forEach(lote => {
+      const l = comProjecao ? ledger.find(x=>x.mesFaturaOrigem===lote.mesFaturaOrigem && x.corte===lote.corte) : {...lote, recebido:0};
+      const saldo = Math.round((l.valorFaturado - l.recebido)*100)/100;
+      const venceu = hoje >= dataVenc(l.mesVencimento, l.diaVencimento);
+      (novoPorDia[l.diaVencimento] ||= {recebido:0, aReceber:0});
+      novoPorDia[l.diaVencimento].recebido = Math.round((novoPorDia[l.diaVencimento].recebido + l.recebido)*100)/100;
+      if (saldo > 0.005) novoPorDia[l.diaVencimento].aReceber = Math.round((novoPorDia[l.diaVencimento].aReceber + saldo)*100)/100;
+    });
+    porDia['Bradesco Saude'] = novoPorDia;
+  }
+
+  return porDia;
+}
+
+function somaStatusVal(v){ return v ? (v.recebido||0)+(v.aReceber||0) : 0; }
+function celulaHtml(v){
+  if (!v || somaStatusVal(v) <= 0) return '<td style="color:#aaa;">' + fmtMoney(0) + '</td>';
+  const linhas = [];
+  if (v.recebido) linhas.push('<span class="fluxo-recebido">'+fmtMoney(v.recebido)+'</span>');
+  if (v.aReceber) linhas.push('<span class="fluxo-a-receber">'+fmtMoney(v.aReceber)+'</span>');
+  return '<td>' + linhas.join('<br>') + '</td>';
+}
+
+function montarMonthPicker(){
+  const el = document.getElementById('fluxoMesPicker');
+  el.innerHTML = MESES_DISPONIVEIS.map(m => `<button class="month-btn${m===FLUXO_MES_ATUAL?' active':''}" data-mes="${m}">${m}</button>`).join('');
+  el.querySelectorAll('.month-btn').forEach(btn => btn.addEventListener('click', () => {
+    el.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    FLUXO_MES_ATUAL = btn.dataset.mes;
+    renderFluxo();
+  }));
+}
+
+function renderFluxo(){
+  const container = document.getElementById('fluxoContainer');
+  if (!FLUXO_MES_ATUAL) { container.innerHTML = ''; return; }
+  const porDia = getFluxoPagamentoMes(FLUXO_MES_ATUAL);
+  const [mesNome, anoCurto] = FLUXO_MES_ATUAL.split('/');
+  const mesNum = MES_ORDER.indexOf(mesNome)+1;
+  const diasNoMes = new Date(2000+parseInt(anoCurto,10), mesNum, 0).getDate();
+  const convenios = Object.keys(porDia).filter(c => Object.values(porDia[c]).some(v=>somaStatusVal(v)>0))
+    .sort((a,b) => {
+      const diasA = Object.entries(porDia[a]).filter(([d,v])=>somaStatusVal(v)>0).map(([d])=>+d);
+      const diasB = Object.entries(porDia[b]).filter(([d,v])=>somaStatusVal(v)>0).map(([d])=>+d);
+      return Math.min(...diasA) - Math.min(...diasB);
+    });
+  if (!convenios.length) { container.innerHTML = '<p class="note">Nada faturado nesse mês.</p>'; return; }
+
+  let html = '<div class="fluxo-scroll"><table><thead><tr><th>Convênio</th>';
+  for (let d=1; d<=diasNoMes; d++) html += `<th>${String(d).padStart(2,'0')}/${String(mesNum).padStart(2,'0')}</th>`;
+  html += '<th>Total</th></tr></thead><tbody>';
+  convenios.forEach(conv => {
+    const banco = bancoConvenioLabel(conv);
+    html += `<tr><td>${conv}${banco?` <span class="banco-tag">${banco}</span>`:''}</td>`;
+    let total = {recebido:0, aReceber:0};
+    for (let d=1; d<=diasNoMes; d++) {
+      const v = porDia[conv][d];
+      if (v) { total.recebido += v.recebido||0; total.aReceber += v.aReceber||0; }
+      html += celulaHtml(v);
+    }
+    html += celulaHtml(total).replace('<td','<td class="fluxo-total"') + '</tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+// ==================== CONFERENCIA POR BANCO ====================
+function chaveConf(conv, mes, dia){ return conv + '|' + mes + '|' + dia; }
+
+function montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo){
+  const linhas = [];
+  MESES_DISPONIVEIS.forEach(mes => {
+    if (mesAlvo && mes !== mesAlvo) return;
+    const porDia = getFluxoPagamentoMes(mes);
+    const [mesNome, anoCurto] = mes.split('/');
+    const ordemMes = MES_ORDER.indexOf(mesNome);
+    Object.entries(porDia).forEach(([conv, dias]) => {
+      if (bancoAlvo && bancoConvenioLabel(conv) !== bancoAlvo) return;
+      if (convenioAlvo && conv !== convenioAlvo) return;
+      Object.entries(dias).forEach(([dia, v]) => {
+        const chave = chaveConf(conv, mes, dia);
+        const conf = CONFIRMACOES[chave];
+        const valor = conf && conf.valor_previsto != null ? conf.valor_previsto : Math.round(((v.aReceber||0)+(v.recebido||0))*100)/100;
+        if (valor <= 0 && !conf) return;
+        const confirmadoAuto = !conf && (v.recebido||0) > 0 && (v.aReceber||0) <= 0.005;
+        linhas.push({
+          chave, conv, mes, dia: parseInt(dia,10), ordemMes, ano: 2000+parseInt(anoCurto,10),
+          dataPrevistaStr: String(dia).padStart(2,'0')+'/'+String(ordemMes+1).padStart(2,'0')+'/'+(2000+parseInt(anoCurto,10)),
+          valorPrevisto: valor, confirmado: !!(conf && conf.confirmado) || confirmadoAuto,
+          valorReal: (conf && conf.valor_real!=null) ? conf.valor_real : '',
+          dataReal: (conf && conf.data_real) ? conf.data_real : '',
+          numFatura: (conf && conf.num_fatura) ? conf.num_fatura : '',
+          baixadoClinic: !!(conf && conf.baixado_clinic),
+        });
+      });
+    });
+  });
+  linhas.sort((a,b)=> a.ano-b.ano || a.ordemMes-b.ordemMes || a.dia-b.dia || a.conv.localeCompare(b.conv));
+  return linhas;
+}
+
+async function salvarConfirmacao(registro){
+  CONFIRMACOES[registro.chave] = registro;
+  const { error } = await sb.from('confirmacoes_banco').upsert({
+    chave: registro.chave, confirmado: registro.confirmado, valor_previsto: registro.valorPrevisto,
+    valor_real: registro.valorReal || null, data_real: registro.dataRealISO || null,
+    num_fatura: registro.numFatura || null, baixado_clinic: registro.baixadoClinic,
+    confirmado_em: new Date().toISOString(),
+  });
+  if (error) alert('Não consegui salvar: ' + error.message);
+}
+
+function renderConfBanco(){
+  const container = document.getElementById('confBancoContainer');
+  const bancoAlvo = document.getElementById('filtroBanco').value;
+  const convenioAlvo = document.getElementById('filtroConvenio').value;
+  const mesAlvo = document.getElementById('filtroMes').value;
+  if (!bancoAlvo && !convenioAlvo) { container.innerHTML = ''; return; }
+  const linhas = montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo);
+  if (!linhas.length) { container.innerHTML = '<p class="note">Nada com esse filtro.</p>'; return; }
+
+  let html = '<div class="fluxo-scroll"><table><thead><tr><th>CNPJ</th><th>Convênio</th><th>Data prevista</th><th>Valor previsto</th><th>Valor real</th><th>Data real</th><th>Confirmado</th><th>Nº Fatura</th><th>Baixado Clinic</th></tr></thead><tbody>';
+  linhas.forEach(l => {
+    const cnpj = cnpjConvenioLabel(l.conv);
+    html += `<tr data-chave="${l.chave}" style="${l.confirmado?'background:var(--teal-wash);':''}">` +
+      `<td class="mono">${cnpj||'—'}</td>` +
+      `<td>${l.conv} <span class="banco-tag">${l.mes}</span></td>` +
+      `<td>${l.dataPrevistaStr}</td>` +
+      `<td>${fmtMoney(l.valorPrevisto)}</td>` +
+      `<td><input type="text" class="v-real" value="${l.valorReal}" placeholder="—"></td>` +
+      `<td><input type="text" class="v-data" value="${l.dataReal}" placeholder="${l.dataPrevistaStr}"></td>` +
+      `<td style="text-align:center;"><input type="checkbox" class="v-conf" ${l.confirmado?'checked':''}></td>` +
+      `<td><input type="text" class="v-fatura" value="${l.numFatura}" placeholder="nº fatura"></td>` +
+      `<td style="text-align:center;"><input type="checkbox" class="v-baixado" ${l.baixadoClinic?'checked':''}></td>` +
+      `</tr>`;
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+
+  container.querySelectorAll('tr[data-chave]').forEach(tr => {
+    const chave = tr.dataset.chave;
+    const l = linhas.find(x=>x.chave===chave);
+    const elConf = tr.querySelector('.v-conf'), elReal = tr.querySelector('.v-real'),
+          elData = tr.querySelector('.v-data'), elFatura = tr.querySelector('.v-fatura'),
+          elBaixado = tr.querySelector('.v-baixado');
+    const salvar = () => {
+      const dataDigitada = elData.value.trim();
+      let dataRealISO = null;
+      if (dataDigitada) { const [d,m,a]=dataDigitada.split('/'); if(d&&m&&a) dataRealISO = `${a}-${m}-${d}`; }
+      const valorReal = elReal.value.trim() ? parseFloat(elReal.value.trim().replace(/\./g,'').replace(',','.')) : null;
+      salvarConfirmacao({
+        chave, confirmado: elConf.checked, valorPrevisto: l.valorPrevisto, valorReal,
+        dataReal: dataDigitada, dataRealISO, numFatura: elFatura.value.trim(), baixadoClinic: elBaixado.checked,
+      });
+      tr.style.background = elConf.checked ? 'var(--teal-wash)' : '';
+    };
+    elConf.addEventListener('change', salvar);
+    elReal.addEventListener('change', salvar);
+    elData.addEventListener('change', salvar);
+    elFatura.addEventListener('change', salvar);
+    elBaixado.addEventListener('change', salvar);
+  });
+}
+
+function montarFiltroBanco(){
+  const bancos = [...new Set(Object.values(BANCO_MAP))].sort((a,b)=>a.localeCompare(b));
+  document.getElementById('filtroBanco').innerHTML = '<option value="">Selecione um banco…</option>' + bancos.map(b=>`<option value="${b}">${b}</option>`).join('');
+  document.getElementById('filtroBanco').addEventListener('change', renderConfBanco);
+  const convenios = [...new Set(Object.keys(BANCO_MAP).map(titleCase))].sort((a,b)=>a.localeCompare(b));
+  document.getElementById('filtroConvenio').innerHTML = '<option value="">Selecione um convênio…</option>' + convenios.map(c=>`<option value="${c}">${c}</option>`).join('');
+  document.getElementById('filtroConvenio').addEventListener('change', renderConfBanco);
+}
+function montarFiltroMesConfBanco(){
+  document.getElementById('filtroMes').innerHTML = '<option value="">Todos os meses</option>' + MESES_DISPONIVEIS.map(m=>`<option value="${m}">${m}</option>`).join('');
+  document.getElementById('filtroMes').addEventListener('change', renderConfBanco);
+}
+
+carregarTudo().catch(e => {
+  document.getElementById('statusCarregamento').textContent = 'Erro ao carregar: ' + e.message;
+  console.error(e);
+});
+</script>
 </body>
 </html>
