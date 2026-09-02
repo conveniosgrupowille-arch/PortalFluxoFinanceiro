@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   /* Mesmos tokens/tipografia do Painel local (Painel_Faturamento_2026.html)
      - pedido do usuario 02/09/2026, "o layout nao veio igual ao painel". */
@@ -111,6 +114,8 @@
   .search-box{display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin-bottom:12px; max-width:340px; background:#fff;}
   .search-box input{border:none; outline:none; font-family:'Inter',sans-serif; font-size:13px; width:100%; color:var(--slate);}
   .search-box svg{color:var(--stone); flex-shrink:0;}
+  .export-opt{display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:8px 10px; border:none; background:none; border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); cursor:pointer;}
+  .export-opt:hover{background:var(--panel);}
 </style>
 </head>
 <body>
@@ -148,8 +153,21 @@
     </section>
 
     <section class="section" id="secFluxo" style="display:none;">
-      <h2>Fluxo de pagamentos</h2>
-      <p class="note">Data de vencimento real, dia a dia.</p>
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>Fluxo de pagamentos</h2>
+          <p class="note" style="margin-bottom:4px;">Data de vencimento real, dia a dia.</p>
+        </div>
+        <div class="export-wrap" style="position:relative;">
+          <button type="button" class="month-btn" id="btnExportarFluxo" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
+          <div id="exportMenuFluxo" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.08); padding:6px; min-width:160px; z-index:10;">
+            <button type="button" class="export-opt" data-formato="imagem">🖼️ Imagem (PNG)</button>
+            <button type="button" class="export-opt" data-formato="pdf">📄 PDF</button>
+            <button type="button" class="export-opt" data-formato="excel">📊 Excel</button>
+          </div>
+        </div>
+      </div>
+      <p class="note" id="exportNote" style="margin-top:-4px;">A exportação inclui só o mês selecionado abaixo.</p>
       <div class="month-picker" id="fluxoMesPicker"></div>
       <div id="fluxoContainer"></div>
     </section>
@@ -664,6 +682,98 @@ function montarMonthPicker(){
     renderFluxo();
   }));
 }
+
+// ==================== EXPORTAR FLUXO (Imagem/PDF/Excel) ====================
+// Pedido do usuario 02/09/2026: botao "Exportar" no Fluxo de Pagamentos, com
+// escolha de formato, exportando so' o mes selecionado no momento.
+function nomeArquivoMesFluxo(){ return FLUXO_MES_ATUAL.replace('/', '-'); }
+function baixarBlobComoArquivo(blob, nome){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function capturarFluxoCanvas(){
+  return await html2canvas(document.getElementById('fluxoContainer'), { backgroundColor: '#F6F5F1', scale: 2 });
+}
+async function exportarFluxoImagem(){
+  const canvas = await capturarFluxoCanvas();
+  canvas.toBlob(blob => baixarBlobComoArquivo(blob, `fluxo_pagamentos_${nomeArquivoMesFluxo()}.png`));
+}
+async function exportarFluxoPDF(){
+  const canvas = await capturarFluxoCanvas();
+  const { jsPDF } = window.jspdf;
+  const larguraMM = 280;
+  const alturaMM = larguraMM * canvas.height / canvas.width;
+  const pdf = new jsPDF({ orientation: alturaMM > larguraMM ? 'portrait' : 'landscape', unit: 'mm', format: [larguraMM, alturaMM] });
+  // JPEG em vez de PNG aqui - pedido implicito de arquivo leve pra
+  // compartilhar (PNG lossless com scale:2 gerava PDF de +12MB pra uma
+  // tabela so' - achado real 02/09/2026 testando a exportacao).
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, larguraMM, alturaMM);
+  pdf.save(`fluxo_pagamentos_${nomeArquivoMesFluxo()}.pdf`);
+}
+function linhasExcelQuinzena(porDia, diaIni, diaFim, mesNum){
+  const dias = []; for (let d=diaIni; d<=diaFim; d++) dias.push(d);
+  const convenios = Object.keys(porDia).filter(conv => dias.some(d => somaStatusVal(porDia[conv][d]) > 0))
+    .sort((a,b) => Math.min(...dias.filter(d=>somaStatusVal(porDia[a][d])>0)) - Math.min(...dias.filter(d=>somaStatusVal(porDia[b][d])>0)));
+  if (!convenios.length) return [];
+  const header = ['Convênio', ...dias.map(d => `${String(d).padStart(2,'0')}/${String(mesNum).padStart(2,'0')}`), 'Total'];
+  const linhas = [header];
+  convenios.forEach(conv => {
+    let totalLinha = 0;
+    const linha = [conv];
+    dias.forEach(d => {
+      const v = porDia[conv][d];
+      const total = somaStatusVal(v);
+      totalLinha += total;
+      if (!v || total <= 0) { linha.push(0); return; }
+      const partes = [];
+      if (v.recebido) partes.push('Recebido: ' + fmtMoney(v.recebido));
+      if (v.aReceber) partes.push('A receber: ' + fmtMoney(v.aReceber));
+      linha.push(partes.join('\n') || total);
+    });
+    linha.push(Math.round(totalLinha*100)/100);
+    linhas.push(linha);
+  });
+  return linhas;
+}
+function exportarFluxoExcel(){
+  const porDia = getFluxoPagamentoMes(FLUXO_MES_ATUAL);
+  const [, mesNum] = [null, MES_ORDER.indexOf(FLUXO_MES_ATUAL.split('/')[0]) + 1];
+  const diasNoMes = new Date(2000 + parseInt(FLUXO_MES_ATUAL.split('/')[1],10), mesNum, 0).getDate();
+  const wb = XLSX.utils.book_new();
+  const l1 = linhasExcelQuinzena(porDia, 1, 15, mesNum);
+  const l2 = linhasExcelQuinzena(porDia, 16, diasNoMes, mesNum);
+  if (l1.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(l1), '1a Quinzena');
+  if (l2.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(l2), '2a Quinzena');
+  if (!l1.length && !l2.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Sem dados neste mês.']]), 'Fluxo');
+  XLSX.writeFile(wb, `fluxo_pagamentos_${nomeArquivoMesFluxo()}.xlsx`);
+}
+function montarExportFluxo(){
+  const btn = document.getElementById('btnExportarFluxo');
+  const menu = document.getElementById('exportMenuFluxo');
+  btn.addEventListener('click', (e) => { e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? '' : 'none'; });
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  document.querySelectorAll('.export-opt').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      menu.style.display = 'none';
+      const formato = opt.dataset.formato;
+      const original = opt.textContent;
+      opt.textContent = 'Gerando…';
+      try {
+        if (formato === 'imagem') await exportarFluxoImagem();
+        else if (formato === 'pdf') await exportarFluxoPDF();
+        else exportarFluxoExcel();
+      } catch (e) {
+        alert('Não consegui exportar: ' + e.message);
+      } finally {
+        opt.textContent = original;
+      }
+    });
+  });
+}
+montarExportFluxo();
 
 // Pedido do usuario 02/09/2026 ("quero exatamente igual sem barra de
 // rolagem, quero 1 quinzena e segunda quinzena") - mesma divisao do Painel
