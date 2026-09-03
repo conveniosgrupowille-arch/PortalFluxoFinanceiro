@@ -123,7 +123,7 @@
   <div class="brand">
     <div>
       <div class="name">Portal Fluxo Financeiro</div>
-      <div class="sub">Instituto de Olhos Dr. Carlo Wille — dados ao vivo, direto do Supabase</div>
+      <div class="sub">Instituto de Olhos Dr. Carlo Wille</div>
       <div class="sync" id="ultimaAtualizacao">Última atualização: —</div>
     </div>
   </div>
@@ -489,16 +489,34 @@ async function carregarUltimaAtualizacao(){
   }
 }
 
+// "Total Honorarios" repete o valor da CONTA INTEIRA em toda linha de
+// procedimento daquela conta (achado real 02/09/2026, ver comentario no
+// Promise.all de carregarTudo). Conta o valor so' 1x por conta (dedupKey =
+// conta, ou ficha+data+honorario quando conta vem em branco - caso de
+// Particular/cirurgia dentro do relatorio de exames) - mutação in-place,
+// mesma logica exata do Painel local (computeFullDashboard).
+function aplicarDedupContaExames(rows){
+  const contasContadas = new Set();
+  rows.forEach(r => {
+    const dedupKey = r.conta || (r.ficha + '|' + r.data_atendimento + '|' + r.total_honorarios);
+    if (contasContadas.has(dedupKey)) {
+      r.valorFinal = 0;
+    } else {
+      r.valorFinal = r.total_honorarios || 0;
+      contasContadas.add(dedupKey);
+    }
+  });
+}
+
 async function carregarTudo(){
   const status = document.getElementById('statusCarregamento');
   status.textContent = 'Carregando dados do Supabase…';
   carregarUltimaAtualizacao();
 
   const [
-    exames, cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos, orcamentoItens,
-    faturadosParaDivergencias, atendidosGeral,
+    cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos, orcamentoItens,
+    examesRaw, atendidosGeral,
   ] = await Promise.all([
-    fetchAll('faturados_exames', 'convenio,data_vencimento,total_honorarios,num_fatura'),
     fetchAll('faturados_cirurgias', 'convenio,data_vencimento,valor_conta,num_fatura'),
     fetchAll('recebimentos_backfill', '*'),
     fetchAll('recebimentos_extra', '*'),
@@ -508,9 +526,21 @@ async function carregarTudo(){
     fetchAll('cnpj_convenio', '*'),
     fetchAll('demonstrativos_convenio', 'convenio,guia,situacao'),
     fetchAll('orcamento_itens', 'codigo,paciente,convenio,status,data_orcamento,descricao,valor,valor_total_desconto'),
+    // faturados_exames: 1 linha por PROCEDIMENTO, nao por conta - "Total
+    // Honorarios" vem REPETIDO com o valor da conta inteira em toda linha
+    // daquela conta (confirmado com o usuario 02/09/2026 contra fatura real
+    // da SC Saude: fatura 2560 tinha R$29.776,16/94 contas no Clinic, mas
+    // somando total_honorarios das 106 linhas dava R$35.805,16 - inflado
+    // porque contas com 2+ procedimentos contavam o total mais de uma vez).
+    // aplicarDedupContaExames() abaixo corrige isso pra TODO calculo que usa
+    // valor (Fluxo de Pagamentos, Previsao, Medicos & Procedimentos) - so'
+    // conta o valor 1x por conta, replicando a logica exata do Painel local
+    // (computeFullDashboard, dedupKey = conta || ficha+data+honorarioOriginal).
     fetchAll('faturados_exames', 'ficha,conta,convenio,status_fat,paciente,data_atendimento,medico,procedimento,total_honorarios,data_vencimento,num_fatura'),
     fetchAll('atendidos_geral', 'num_ficha,paciente,convenio,procedimento,data_atendimento,valor'),
   ]);
+  const faturadosParaDivergencias = examesRaw;
+  aplicarDedupContaExames(faturadosParaDivergencias);
 
   bancoRows.forEach(r => BANCO_MAP[r.convenio] = r.banco);
   cnpjRows.forEach(r => CNPJ_MAP[r.convenio] = r.cnpj);
@@ -524,11 +554,11 @@ async function carregarTudo(){
   demonstrativos.forEach(d => { if (d.guia) demonstrativoByGuia[d.convenio + '|' + d.guia] = d; });
 
   ROWS = [];
-  exames.forEach(r => {
+  examesRaw.forEach(r => {
     if (!r.convenio || !r.data_vencimento) return;
     const conv = normalizeConvenio(r.convenio);
     ROWS.push({
-      convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.total_honorarios || 0,
+      convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valorFinal || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Exames|' + r.num_fatura] : null,
       entidade: 'iocw',
     });
@@ -1303,7 +1333,7 @@ function processarPrevisao(faturadosRows){
   const rows = faturadosRows.filter(r => r.data_atendimento).map(r => ({
     convenio: normalizeConvenio(r.convenio), statusFat: r.status_fat || '',
     mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
-    valorFinal: r.total_honorarios || 0, dataVencimento: r.data_vencimento,
+    valorFinal: r.valorFinal || 0, dataVencimento: r.data_vencimento,
     backfillPagamento: r.num_fatura ? (window.BACKFILL_BY_CHAVE||{})['Exames|' + r.num_fatura] : null,
   }));
 
@@ -1395,7 +1425,7 @@ let MEDICOS_ABERTO = null;
 function processarMedicos(faturadosRows){
   MEDICOS_ROWS = faturadosRows.filter(r => r.data_atendimento && r.medico).map(r => ({
     medico: titleCase(cleanDoc(r.medico)), procedimento: titleCase((r.procedimento||'').slice(0,55)),
-    valor: r.total_honorarios || 0, mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+    valor: r.valorFinal || 0, mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
   }));
 
   function mesKeyMed(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
