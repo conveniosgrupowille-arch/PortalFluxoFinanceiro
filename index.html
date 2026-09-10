@@ -478,8 +478,6 @@ async function carregarAuditLog(forcar){
 }
 
 function fazerLogout(){
-  localStorage.removeItem('portalFluxoIdentity');
-  localStorage.removeItem('portalFluxoSenha');
   location.reload();
 }
 
@@ -503,14 +501,12 @@ async function tentarLogin(identity, password){
 }
 
 async function iniciarLogin(){
-  const savedIdentity = localStorage.getItem('portalFluxoIdentity');
-  const savedSenha = localStorage.getItem('portalFluxoSenha');
-  if(savedIdentity && savedSenha){
-    const ok = await tentarLogin(savedIdentity, savedSenha);
-    if(ok){ iniciarAposLogin(); return; }
-    localStorage.removeItem('portalFluxoIdentity');
-    localStorage.removeItem('portalFluxoSenha');
-  }
+  // Pedido do usuário (10/09/2026): sempre pedir login, sem "lembrar" no
+  // navegador. Antes disso o Portal salvava identity+senha no localStorage
+  // e pulava a tela de login em quem já tinha entrado antes naquele
+  // aparelho - removido. Limpa qualquer sessão salva de antes dessa mudança.
+  localStorage.removeItem('portalFluxoIdentity');
+  localStorage.removeItem('portalFluxoSenha');
   document.getElementById('loginForm').addEventListener('submit', async ()=>{
     const identity = document.getElementById('loginIdentity').value;
     const password = document.getElementById('loginPassword').value;
@@ -518,8 +514,6 @@ async function iniciarLogin(){
     if(!identity){ erroEl.textContent = 'Selecione quem você é.'; return; }
     const ok = await tentarLogin(identity, password);
     if(ok){
-      localStorage.setItem('portalFluxoIdentity', identity);
-      localStorage.setItem('portalFluxoSenha', password);
       erroEl.textContent = '';
       iniciarAposLogin();
     }else{
