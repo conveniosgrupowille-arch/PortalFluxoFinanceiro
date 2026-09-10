@@ -1733,7 +1733,7 @@ function processarPrevisao(faturadosRows, atendidosRows){
       const naoFaturadoItens = isDireto ? 0 : Math.max(0, atendidoInfo.itens - rs.length);
 
       return {
-        nome: titleCase(conv), itens: rs.length + naoFaturadoItens,
+        nome: conv ? titleCase(conv) : '(Convênio não identificado)', itens: rs.length + naoFaturadoItens,
         faturado: { valor: sumVal(faturadoAguardRows), itens: faturadoAguardRows.length },
         naoFaturado: { valor: naoFaturadoValor, itens: naoFaturadoItens },
         recebido: { valor: sumVal(recebidoRows), itens: recebidoRows.length },
