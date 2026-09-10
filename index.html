@@ -126,10 +126,24 @@
       <div class="sub">Instituto de Olhos Dr. Carlo Wille e Hub Laser</div>
       <div class="sync" id="ultimaAtualizacao">Última atualização: —</div>
     </div>
+    <button type="button" id="logoutBtn" class="tab-btn" style="display:none; margin-left:auto; border:1px solid rgba(255,255,255,0.35);" onclick="fazerLogout()">Sair</button>
   </div>
 </div>
 <div class="wrap">
-  <div id="statusCarregamento" class="status">Carregando dados…</div>
+  <div id="loginGate" class="status">
+    <form id="loginForm" onsubmit="return false;" style="display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;">
+      <select id="loginIdentity" required>
+        <option value="" disabled selected>Selecione…</option>
+        <option value="Andreia">Andreia</option>
+        <option value="Artur">Artur</option>
+        <option value="Carolline">Carolline</option>
+      </select>
+      <input type="password" id="loginPassword" placeholder="Senha" autocomplete="current-password">
+      <button type="submit">Entrar</button>
+      <span id="loginErro" style="color:#c0392b; font-size:12.5px;"></span>
+    </form>
+  </div>
+  <div id="statusCarregamento" class="status" style="display:none;">Carregando dados…</div>
 
   <div class="tabs" id="tabs" style="display:none;">
     <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas</button>
@@ -333,12 +347,129 @@
       </div>
     </section>
   </div>
+
+  <div id="auditLogSection" style="display:none; margin-top:24px; padding-top:16px; border-top:1px solid var(--line);">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+      <h2 style="font-size:15px; margin:0;">Log de auditoria</h2>
+      <button type="button" class="month-btn" id="auditLogToggleBtn" onclick="toggleAuditLog()">Ver log</button>
+    </div>
+    <div id="auditLogList" style="display:none;"></div>
+  </div>
 </div>
 
 <script>
 const SUPABASE_URL = "https://ylalexswpruqfvinkhdl.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Gj4D217YeW_puPB9ynf16g_shx1Oo9n";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let IDENTITY = null, SENHA = null;
+
+async function getPublicIp(){
+  try{
+    const controller = new AbortController();
+    const timeout = setTimeout(()=> controller.abort(), 3000);
+    const resp = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
+    clearTimeout(timeout);
+    const data = await resp.json();
+    return data.ip || null;
+  }catch(err){
+    return null;
+  }
+}
+
+async function registrarAcesso(){
+  const ip = await getPublicIp();
+  const { error } = await sb.rpc('log_access', {
+    p_identity: IDENTITY, p_password: SENHA,
+    p_details: `IP: ${ip || 'desconhecido'} · ${navigator.userAgent}`,
+  });
+  if(error) console.error('Erro ao registrar acesso', error);
+}
+
+let auditLogLoaded = false;
+async function toggleAuditLog(){
+  const box = document.getElementById('auditLogList');
+  const btn = document.getElementById('auditLogToggleBtn');
+  if(box.style.display !== 'none'){
+    box.style.display = 'none';
+    btn.textContent = 'Ver log';
+    return;
+  }
+  box.style.display = 'block';
+  btn.textContent = 'Ocultar log';
+  if(auditLogLoaded) return;
+  box.innerHTML = '<p class="note">Carregando…</p>';
+  try{
+    const { data, error } = await sb.rpc('get_access_log', { p_identity: IDENTITY, p_password: SENHA, p_limit: 500 });
+    if(error) throw error;
+    if(!data || data.length === 0){
+      box.innerHTML = '<p class="note">Nenhum acesso registrado ainda.</p>';
+      return;
+    }
+    box.innerHTML = data.map(ev => `
+      <div style="padding:8px 0; border-bottom:1px dotted var(--line); font-size:12.5px;">
+        ${new Date(ev.ts).toLocaleString('pt-BR')} · <b>${ev.identity}</b><br>
+        <span style="color:var(--stone);">${ev.details || ''}</span>
+      </div>
+    `).join('');
+    auditLogLoaded = true;
+  }catch(err){
+    box.innerHTML = '<p class="note">Erro ao carregar o log.</p>';
+    console.error(err);
+  }
+}
+
+function fazerLogout(){
+  localStorage.removeItem('portalFluxoIdentity');
+  localStorage.removeItem('portalFluxoSenha');
+  location.reload();
+}
+
+async function iniciarAposLogin(){
+  document.getElementById('loginGate').style.display = 'none';
+  document.getElementById('logoutBtn').style.display = '';
+  document.getElementById('auditLogSection').style.display = '';
+  document.getElementById('statusCarregamento').style.display = '';
+  registrarAcesso();
+  carregarTudo().catch(e => {
+    document.getElementById('statusCarregamento').textContent = 'Erro ao carregar: ' + e.message;
+    console.error(e);
+  });
+}
+
+async function tentarLogin(identity, password){
+  const { data, error } = await sb.rpc('app_login', { p_identity: identity, p_password: password });
+  if(error || !data) return false;
+  IDENTITY = identity;
+  SENHA = password;
+  return true;
+}
+
+async function iniciarLogin(){
+  const savedIdentity = localStorage.getItem('portalFluxoIdentity');
+  const savedSenha = localStorage.getItem('portalFluxoSenha');
+  if(savedIdentity && savedSenha){
+    const ok = await tentarLogin(savedIdentity, savedSenha);
+    if(ok){ iniciarAposLogin(); return; }
+    localStorage.removeItem('portalFluxoIdentity');
+    localStorage.removeItem('portalFluxoSenha');
+  }
+  document.getElementById('loginForm').addEventListener('submit', async ()=>{
+    const identity = document.getElementById('loginIdentity').value;
+    const password = document.getElementById('loginPassword').value;
+    const erroEl = document.getElementById('loginErro');
+    if(!identity){ erroEl.textContent = 'Selecione quem você é.'; return; }
+    const ok = await tentarLogin(identity, password);
+    if(ok){
+      localStorage.setItem('portalFluxoIdentity', identity);
+      localStorage.setItem('portalFluxoSenha', password);
+      erroEl.textContent = '';
+      iniciarAposLogin();
+    }else{
+      erroEl.textContent = 'Senha incorreta.';
+    }
+  });
+}
 
 const MES_ORDER = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const MES_NOMES = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'};
@@ -452,7 +583,7 @@ async function fetchAll(tabela, colunas){
   let tudo = [], from = 0;
   const PAGE = 1000;
   while (true) {
-    const { data, error } = await sb.from(tabela).select(colunas).range(from, from + PAGE - 1);
+    const { data, error } = await sb.rpc('get_' + tabela, { p_identity: IDENTITY, p_password: SENHA }).range(from, from + PAGE - 1);
     if (error) { console.error('Erro em', tabela, error); break; }
     tudo = tudo.concat(data || []);
     if (!data || data.length < PAGE) break;
@@ -469,16 +600,9 @@ async function fetchAll(tabela, colunas){
 async function carregarUltimaAtualizacao(){
   const el = document.getElementById('ultimaAtualizacao');
   try {
-    const tabelas = ['faturados_exames', 'faturados_cirurgias', 'repasse_medico', 'demonstrativos_convenio'];
-    const resultados = await Promise.all(tabelas.map(t =>
-      sb.from(t).select('atualizado_em').order('atualizado_em', { ascending: false }).limit(1)
-    ));
-    const datas = resultados
-      .map(r => r.data && r.data[0] && r.data[0].atualizado_em)
-      .filter(Boolean)
-      .map(s => new Date(s));
-    if (!datas.length) { el.textContent = 'Última atualização: indisponível'; return; }
-    const maisRecente = new Date(Math.max(...datas));
+    const { data, error } = await sb.rpc('get_ultima_atualizacao', { p_identity: IDENTITY, p_password: SENHA });
+    if (error || !data) { el.textContent = 'Última atualização: indisponível'; return; }
+    const maisRecente = new Date(data);
     const fmt = maisRecente.toLocaleString('pt-BR', {
       timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
@@ -912,11 +1036,11 @@ function montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo){
 
 async function salvarConfirmacao(registro){
   CONFIRMACOES[registro.chave] = registro;
-  const { error } = await sb.from('confirmacoes_banco').upsert({
-    chave: registro.chave, confirmado: registro.confirmado, valor_previsto: registro.valorPrevisto,
-    valor_real: registro.valorReal || null, data_real: registro.dataRealISO || null,
-    num_fatura: registro.numFatura || null, baixado_clinic: registro.baixadoClinic,
-    confirmado_em: new Date().toISOString(),
+  const { error } = await sb.rpc('upsert_confirmacao_banco', {
+    p_identity: IDENTITY, p_password: SENHA,
+    p_chave: registro.chave, p_confirmado: registro.confirmado, p_valor_previsto: registro.valorPrevisto,
+    p_valor_real: registro.valorReal || null, p_data_real: registro.dataRealISO || null,
+    p_num_fatura: registro.numFatura || null, p_baixado_clinic: registro.baixadoClinic,
   });
   if (error) alert('Não consegui salvar: ' + error.message);
 }
@@ -1613,10 +1737,7 @@ function renderCortesiaOutrosLista(){
     </tr>`).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--stone); padding:20px;">Nenhum item neste período</td></tr>';
 }
 
-carregarTudo().catch(e => {
-  document.getElementById('statusCarregamento').textContent = 'Erro ao carregar: ' + e.message;
-  console.error(e);
-});
+iniciarLogin();
 </script>
 </body>
 </html>
