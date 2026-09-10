@@ -34,7 +34,34 @@
   .brand .sub{font-size:11.5px; color:rgba(255,255,255,0.72); letter-spacing:0.02em; margin-top:2px;}
   .brand .sync{font-family:'IBM Plex Mono',monospace; font-size:11px; color:rgba(255,255,255,0.85); margin-top:8px;}
 
-  .wrap{max-width:1400px; margin:0 auto; padding:32px 40px 80px;}
+  /* Layout em sidebar (10/09/2026, pedido da gestão: "menus na lateral estilo
+     sistema") - a nav que antes era uma barra horizontal (.tabs/.tab-btn)
+     virou uma coluna fixa à esquerda. Os IDs/classes (#tabs, .tab-btn,
+     .active) continuam os mesmos de propósito - só CSS + wrapper HTML novo,
+     JS de troca de aba não mudou nada. */
+  .app-shell{display:flex; align-items:flex-start;}
+  .main-content{flex:1; min-width:0;}
+  .sidebar-divider{height:1px; background:rgba(255,255,255,0.15); margin:4px 10px 9px;}
+  @media (max-width:860px){
+    .app-shell{flex-direction:column;}
+    .tabs{flex-direction:row; width:auto; overflow-x:auto; margin:20px 20px 0; position:static;}
+    .sidebar-divider{display:none;}
+  }
+  .wrap{max-width:1200px; margin:0; padding:32px 40px 80px;}
+  .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; margin-bottom:18px;}
+  .form-field{display:flex; flex-direction:column; gap:5px;}
+  .form-field label{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
+  .form-field input[type=text], .form-field input[type=date], .form-field textarea{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box;}
+  .form-field textarea{resize:vertical; min-height:60px; font-family:'Inter',sans-serif;}
+  .file-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px; background:var(--paper); border-radius:8px; border:1px dashed var(--line);}
+  .file-row .file-name{font-size:12.5px; color:var(--slate-2); flex:1; min-width:120px;}
+  .btn-mini{padding:6px 12px; border-radius:7px; border:1px solid var(--line); background:#fff; font-size:12px; font-family:'Inter',sans-serif; cursor:pointer; color:var(--slate-2); font-weight:600; white-space:nowrap;}
+  .btn-mini:hover{background:var(--panel);}
+  .btn-mini.danger{color:#A23B3B; border-color:#EFC9C9;}
+  .btn-primary{padding:9px 18px; border-radius:8px; border:none; background:var(--teal-deep); color:#fff; font-family:'Inter',sans-serif; font-weight:600; font-size:13px; cursor:pointer;}
+  .btn-primary:hover{background:var(--teal-dark);}
+  .btn-primary:disabled{opacity:0.6; cursor:default;}
+  .contrato-lista-item{display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer;}
   h2{font-family:'Fraunces',serif; font-weight:600; font-size:19px; margin:0 0 4px; color:var(--teal-deep);}
   .note{color:var(--stone); font-size:12.5px; margin:0 0 16px; line-height:1.5;}
   .filtros{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
@@ -67,12 +94,15 @@
   input[type=checkbox]{width:16px; height:16px; cursor:pointer; accent-color:var(--teal-deep);}
   .section{margin-top:36px; padding-top:24px; border-top:1px solid var(--line);}
   .status{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--stone); margin-bottom:18px;}
-  /* Tabs (02/09/2026, primeira aba nova alem de Fluxo de Pagamentos - pedido
-     do usuario "quero todas as abas tambem") - mesma logica visual do Painel
-     local (.tabs/.tab-btn), so' que aqui cada aba e' uma <section> mostrada/
-     escondida via JS em vez de <div class="panel">. */
-  .tabs{display:flex; gap:4px; flex-wrap:wrap; background:var(--teal-deep); border-radius:12px; padding:6px; margin-bottom:28px;}
+  /* Tabs (02/09/2026, primeira aba nova alem de Fluxo de Pagamentos) - virou
+     sidebar em 10/09/2026 (pedido da gestão: "menus na lateral estilo
+     sistema"). .tab-btn continua compartilhado com o botão "Sair" do topbar
+     (por isso o layout de coluna/largura 100% fica em ".tabs .tab-btn", não
+     em ".tab-btn" puro - senão o botão Sair também esticava). */
+  .tabs{display:flex; flex-direction:column; gap:3px; background:var(--teal-deep); border-radius:12px; padding:10px; width:224px; flex-shrink:0; margin:32px 0 32px 40px; position:sticky; top:20px;}
   .tab-btn{padding:9px 16px; border-radius:8px; border:none; background:transparent; color:rgba(255,255,255,0.72); font-family:'Inter',sans-serif; font-weight:600; font-size:13px; cursor:pointer;}
+  .tabs .tab-btn{width:100%; text-align:left; display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  .tab-btn.contratos-btn{margin-bottom:8px;}
   .tab-btn:hover{color:#fff; background:rgba(255,255,255,0.08);}
   .tab-btn.active{background:#fff; color:var(--teal-deep);}
   .tab-btn .n{font-family:'IBM Plex Mono',monospace; font-size:10.5px; background:rgba(255,255,255,0.16); padding:1px 6px; border-radius:20px;}
@@ -129,7 +159,20 @@
     <button type="button" id="logoutBtn" class="tab-btn" style="display:none; margin-left:auto; border:1px solid rgba(255,255,255,0.35);" onclick="fazerLogout()">Sair</button>
   </div>
 </div>
-<div class="wrap">
+<div class="app-shell">
+  <nav class="tabs" id="tabs" style="display:none;">
+    <button type="button" class="tab-btn contratos-btn" data-tab="contratos">Gestão de Contratos</button>
+    <div class="sidebar-divider"></div>
+    <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas</button>
+    <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
+    <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
+    <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
+    <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
+    <button type="button" class="tab-btn" data-tab="cortesias">Cortesia/Retorno</button>
+    <button type="button" class="tab-btn" data-tab="auditoria">Auditoria de Log</button>
+  </nav>
+  <div class="main-content">
+  <div class="wrap">
   <div id="loginGate" style="display:flex; justify-content:center; padding-top:48px;">
     <div class="card" style="width:100%; max-width:320px;">
       <h2 style="text-align:center; margin-bottom:16px;">Entrar</h2>
@@ -152,14 +195,22 @@
   </div>
   <div id="statusCarregamento" class="status" style="display:none;">Carregando dados…</div>
 
-  <div class="tabs" id="tabs" style="display:none;">
-    <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas</button>
-    <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
-    <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
-    <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
-    <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
-    <button type="button" class="tab-btn" data-tab="cortesias">Cortesia/Retorno</button>
-    <button type="button" class="tab-btn" data-tab="auditoria">Auditoria de Log</button>
+  <div id="panel-contratos" class="tab-panel" style="display:none;">
+    <section class="section" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Gestão de Contratos</h2>
+      <p class="note">Contrato, aditivos, conta para recebimento e datas de reajuste de cada convênio/parceiro. Clique num convênio na lista pra ver e editar — todos os campos podem ser atualizados a qualquer momento. Carga inicial importada de LOTES(CNPJ_CONVENIOS).</p>
+      <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+        <div class="card" style="width:280px; flex-shrink:0;">
+          <div class="search-box">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="contratoSearch" placeholder="Buscar convênio…">
+          </div>
+          <ul class="rank-list" id="contratoLista" style="max-height:560px; overflow-y:auto;"></ul>
+          <button type="button" class="btn-mini" style="width:100%; margin-top:10px;" onclick="novoConvenio()">+ Novo convênio</button>
+        </div>
+        <div class="card" id="contratoDetalheCard" style="flex:1; min-width:340px; display:none;"></div>
+      </div>
+    </section>
   </div>
 
   <div id="panel-fluxo" class="tab-panel">
@@ -367,6 +418,8 @@
       </div>
       <div id="auditLogList"></div>
     </section>
+  </div>
+  </div>
   </div>
 </div>
 
@@ -745,6 +798,7 @@ function montarTabs(){
       document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
       document.getElementById('panel-' + btn.dataset.tab).style.display = '';
       if(btn.dataset.tab === 'auditoria') carregarAuditLog(false);
+      if(btn.dataset.tab === 'contratos') carregarContratos(false);
     });
   });
 }
@@ -1743,6 +1797,241 @@ function renderCortesiaOutrosLista(){
       <td>${d.procedimento}</td>
       <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtMoney(d.valorEstimado)}</td>
     </tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:var(--stone); padding:20px;">Nenhum item neste período</td></tr>';
+}
+
+// ==================== GESTÃO DE CONTRATOS ====================
+// Módulo novo (10/09/2026, pedido da gestão) - contrato/aditivos/conta
+// recebedora/datas de reajuste por convênio, tudo editável. Carga inicial
+// veio de LOTES(CNPJ_CONVENIOS).csv (migrar_contratos.py, rodado uma vez só).
+// Arquivos (PDF de contrato/aditivo) ficam em bytea DENTRO do banco, não em
+// Supabase Storage - assim o download passa pela MESMA função com senha que
+// já protege todo o resto do Portal, sem precisar de Edge Function nova.
+const MAX_ARQUIVO_MB = 8;
+let CONTRATOS = [];
+let ADITIVOS = [];
+let CONTRATO_SELECIONADO_ID = null;
+let contratosCarregados = false;
+let contratoSearchWired = false;
+
+function escAttr(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function wireContratoSearch(){
+  if(contratoSearchWired) return;
+  document.getElementById('contratoSearch').addEventListener('input', renderContratoLista);
+  contratoSearchWired = true;
+}
+
+async function carregarContratos(forcar){
+  if(contratosCarregados && !forcar) return;
+  wireContratoSearch();
+  const [contratosResp, aditivosResp] = await Promise.all([
+    sb.rpc('get_convenios_contratos', { p_identity: IDENTITY, p_password: SENHA }),
+    sb.rpc('get_convenios_aditivos', { p_identity: IDENTITY, p_password: SENHA }),
+  ]);
+  if(contratosResp.error){ console.error('Erro ao carregar convenios_contratos', contratosResp.error); return; }
+  if(aditivosResp.error){ console.error('Erro ao carregar convenios_aditivos', aditivosResp.error); return; }
+  CONTRATOS = contratosResp.data || [];
+  ADITIVOS = aditivosResp.data || [];
+  contratosCarregados = true;
+  renderContratoLista();
+}
+
+function renderContratoLista(){
+  const q = (document.getElementById('contratoSearch').value || '').toLowerCase();
+  const list = CONTRATOS.filter(c => !q || c.convenio.toLowerCase().includes(q)).sort((a,b)=>a.convenio.localeCompare(b.convenio,'pt-BR'));
+  document.getElementById('contratoLista').innerHTML = list.map(c => `
+    <li class="rank-item${c.id===CONTRATO_SELECIONADO_ID?' selected':''}" onclick="selecionarConvenio(${c.id})">
+      <div class="contrato-lista-item">
+        <span class="rl-nome">${escAttr(c.convenio)}</span>
+        ${c.contrato_arquivo_nome ? '<span class="tag diff">contrato ok</span>' : '<span class="tag invest">sem contrato</span>'}
+      </div>
+    </li>
+  `).join('') || '<li class="note" style="padding:8px 0;">Nenhum convênio encontrado.</li>';
+}
+
+function selecionarConvenio(id){
+  CONTRATO_SELECIONADO_ID = id;
+  renderContratoLista();
+  renderContratoDetalhe(CONTRATOS.find(c => c.id === id) || null);
+}
+
+function novoConvenio(){
+  CONTRATO_SELECIONADO_ID = null;
+  renderContratoLista();
+  renderContratoDetalhe(null);
+}
+
+function renderAditivosList(convenioId){
+  const list = ADITIVOS.filter(a => a.convenio_id === convenioId);
+  if(!list.length) return '<p class="note">Nenhum aditivo registrado ainda.</p>';
+  return list.map(a => `
+    <div class="file-row">
+      <span class="file-name">${a.data_aditivo ? new Date(a.data_aditivo+'T00:00:00').toLocaleDateString('pt-BR') : '(sem data)'}${a.descricao ? (' — '+escAttr(a.descricao)) : ''}</span>
+      ${a.arquivo_nome ? `<button type="button" class="btn-mini" onclick="baixarAditivoArquivo(${a.id})">Baixar (${escAttr(a.arquivo_nome)})</button>` : '<span class="note" style="margin:0;">sem arquivo</span>'}
+      <button type="button" class="btn-mini danger" onclick="excluirAditivo(${a.id})">Excluir</button>
+    </div>
+  `).join('');
+}
+
+function renderContratoDetalhe(c){
+  const card = document.getElementById('contratoDetalheCard');
+  card.style.display = '';
+  card.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:4px;">
+      <h3 style="margin:0;">${c ? escAttr(c.convenio) : 'Novo convênio'}</h3>
+      ${c ? `<button type="button" class="btn-mini danger" onclick="excluirConvenio(${c.id})">Excluir convênio</button>` : ''}
+    </div>
+    <div class="sub" style="margin-bottom:14px;">${c ? `Última edição: ${c.atualizado_em ? new Date(c.atualizado_em).toLocaleString('pt-BR') : '—'}${c.atualizado_por ? ' · '+escAttr(c.atualizado_por) : ''}` : 'Preencha os dados e salve pra criar.'}</div>
+
+    <div class="form-grid">
+      <div class="form-field"><label>Convênio</label><input type="text" id="cf_convenio" value="${escAttr(c && c.convenio)}"></div>
+      <div class="form-field"><label>Responsável</label><input type="text" id="cf_responsavel" value="${escAttr(c && c.responsavel)}"></div>
+      <div class="form-field"><label>CNPJ p/ emitir NF</label><input type="text" id="cf_cnpjNf" value="${escAttr(c && c.cnpj_emitir_nf)}"></div>
+      <div class="form-field"><label>CNPJ do convênio</label><input type="text" id="cf_cnpjConv" value="${escAttr(c && c.cnpj_convenio)}"></div>
+      <div class="form-field"><label>Conta recebedora — Consultas/Exames</label><input type="text" id="cf_contaConsultas" value="${escAttr(c && c.conta_consultas_exames)}"></div>
+      <div class="form-field"><label>Conta recebedora — Cirurgias</label><input type="text" id="cf_contaCirurgias" value="${escAttr(c && c.conta_cirurgias)}"></div>
+      <div class="form-field"><label>Data de assinatura do contrato</label><input type="date" id="cf_dataAssinatura" value="${(c && c.data_assinatura) || ''}"></div>
+      <div class="form-field"><label>Status da negociação</label><input type="text" id="cf_status" value="${escAttr(c && c.status_negociacao)}"></div>
+      <div class="form-field"><label>Quando solicitar o reajuste</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
+      <div class="form-field"><label>Quando o reajuste entra em vigor</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
+      <div class="form-field"><label>E-mail para negociação</label><input type="text" id="cf_email" value="${escAttr(c && c.email_negociacao)}"></div>
+      <div class="form-field"><label>Telefone</label><input type="text" id="cf_telefone" value="${escAttr(c && c.telefone)}"></div>
+    </div>
+    <div class="form-field" style="margin-bottom:18px;"><label>Observações</label><textarea id="cf_observacoes">${escAttr(c && c.observacoes)}</textarea></div>
+
+    <h3 style="font-size:14px;">Contrato</h3>
+    <div class="file-row" style="margin-bottom:18px;">
+      <span class="file-name">${c && c.contrato_arquivo_nome ? escAttr(c.contrato_arquivo_nome) : 'Nenhum arquivo anexado'}</span>
+      ${c && c.contrato_arquivo_nome ? `<button type="button" class="btn-mini" onclick="baixarContratoArquivo(${c.id})">Baixar</button>` : ''}
+      <input type="file" id="cf_arquivo" accept="application/pdf,image/*" style="max-width:220px;">
+    </div>
+
+    <button type="button" class="btn-primary" id="cf_salvarBtn" onclick="salvarContrato(${c ? c.id : 'null'})">Salvar convênio</button>
+
+    ${c ? `
+    <h3 style="font-size:14px; margin-top:26px;">Aditivos</h3>
+    <p class="note">Cada aditivo fica registrado com data e arquivo próprios — o histórico não se perde quando vier um novo.</p>
+    <div id="aditivosList" style="margin-bottom:14px;">${renderAditivosList(c.id)}</div>
+    <div class="file-row" style="flex-wrap:wrap;">
+      <input type="date" id="ad_data" style="width:150px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px;">
+      <input type="text" id="ad_descricao" placeholder="Observação (opcional)" style="flex:1; min-width:140px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px;">
+      <input type="file" id="ad_arquivo" accept="application/pdf,image/*" style="max-width:200px;">
+      <button type="button" class="btn-mini" onclick="adicionarAditivo(${c.id})">+ Adicionar aditivo</button>
+    </div>
+    ` : ''}
+  `;
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function arquivoParaEnvio(inputId){
+  const input = document.getElementById(inputId);
+  if(!input.files || !input.files[0]) return { base64: null, nome: null };
+  const file = input.files[0];
+  if(file.size > MAX_ARQUIVO_MB * 1024 * 1024){
+    alert(`Arquivo maior que ${MAX_ARQUIVO_MB}MB - reduza o tamanho (ex: comprimir o PDF) antes de anexar.`);
+    throw new Error('arquivo_grande');
+  }
+  return { base64: await fileToBase64(file), nome: file.name };
+}
+
+function baixarBase64(nome, base64){
+  const byteChars = atob(base64);
+  const bytes = new Uint8Array(byteChars.length);
+  for(let i=0;i<byteChars.length;i++) bytes[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([bytes]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome || 'arquivo';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function baixarContratoArquivo(id){
+  const { data, error } = await sb.rpc('get_contrato_arquivo', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
+  if(error || !data || !data[0]){ alert('Não foi possível baixar o arquivo.'); console.error(error); return; }
+  baixarBase64(data[0].arquivo_nome, data[0].arquivo_base64);
+}
+
+async function baixarAditivoArquivo(id){
+  const { data, error } = await sb.rpc('get_aditivo_arquivo', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
+  if(error || !data || !data[0]){ alert('Não foi possível baixar o arquivo.'); console.error(error); return; }
+  baixarBase64(data[0].arquivo_nome, data[0].arquivo_base64);
+}
+
+async function salvarContrato(id){
+  const get = fid => document.getElementById(fid).value.trim();
+  const convenio = get('cf_convenio');
+  if(!convenio){ alert('Preencha o nome do convênio.'); return; }
+
+  let arquivo;
+  try { arquivo = await arquivoParaEnvio('cf_arquivo'); } catch(e){ return; }
+
+  const btn = document.getElementById('cf_salvarBtn');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  const { data, error } = await sb.rpc('upsert_convenio_contrato', {
+    p_identity: IDENTITY, p_password: SENHA, p_id: id,
+    p_cnpj_emitir_nf: get('cf_cnpjNf') || null,
+    p_cnpj_convenio: get('cf_cnpjConv') || null,
+    p_convenio: convenio,
+    p_conta_consultas_exames: get('cf_contaConsultas') || null,
+    p_conta_cirurgias: get('cf_contaCirurgias') || null,
+    p_data_assinatura: get('cf_dataAssinatura') || null,
+    p_data_solicitar_reajuste: get('cf_dataSolicitar') || null,
+    p_data_vigencia_reajuste: get('cf_dataVigencia') || null,
+    p_status_negociacao: get('cf_status') || null,
+    p_email_negociacao: get('cf_email') || null,
+    p_telefone: get('cf_telefone') || null,
+    p_responsavel: get('cf_responsavel') || null,
+    p_observacoes: get('cf_observacoes') || null,
+    p_contrato_arquivo_nome: arquivo.nome,
+    p_contrato_arquivo_base64: arquivo.base64,
+  });
+  btn.disabled = false; btn.textContent = 'Salvar convênio';
+  if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
+  await carregarContratos(true);
+  selecionarConvenio(data);
+}
+
+async function excluirConvenio(id){
+  if(!confirm('Excluir este convênio e todos os aditivos anexados? Essa ação não pode ser desfeita.')) return;
+  const { error } = await sb.rpc('delete_convenio_contrato', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
+  if(error){ alert('Erro: ' + error.message); console.error(error); return; }
+  CONTRATO_SELECIONADO_ID = null;
+  document.getElementById('contratoDetalheCard').style.display = 'none';
+  await carregarContratos(true);
+}
+
+async function adicionarAditivo(convenioId){
+  const data = document.getElementById('ad_data').value || null;
+  const descricao = document.getElementById('ad_descricao').value.trim() || null;
+  let arquivo;
+  try { arquivo = await arquivoParaEnvio('ad_arquivo'); } catch(e){ return; }
+  if(!data && !arquivo.nome){ alert('Preencha ao menos a data ou anexe um arquivo.'); return; }
+  const { error } = await sb.rpc('insert_convenio_aditivo', {
+    p_identity: IDENTITY, p_password: SENHA, p_convenio_id: convenioId,
+    p_data_aditivo: data, p_descricao: descricao,
+    p_arquivo_nome: arquivo.nome, p_arquivo_base64: arquivo.base64,
+  });
+  if(error){ alert('Erro ao adicionar aditivo: ' + error.message); console.error(error); return; }
+  await carregarContratos(true);
+  selecionarConvenio(convenioId);
+}
+
+async function excluirAditivo(id){
+  if(!confirm('Excluir este aditivo?')) return;
+  const convenioId = CONTRATO_SELECIONADO_ID;
+  const { error } = await sb.rpc('delete_convenio_aditivo', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
+  if(error){ alert('Erro: ' + error.message); console.error(error); return; }
+  await carregarContratos(true);
+  selecionarConvenio(convenioId);
 }
 
 iniciarLogin();
