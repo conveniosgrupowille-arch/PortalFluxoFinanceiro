@@ -65,6 +65,7 @@
   .wrap{max-width:1200px; margin:0; padding:32px 40px 80px;}
   .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; margin-bottom:18px;}
   .form-field{display:flex; flex-direction:column; gap:5px;}
+  .form-section-label{grid-column:1/-1; font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--teal-deep); font-weight:700; margin-top:4px; padding-top:12px; border-top:1px dashed var(--line);}
   .form-field label{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
   .form-field input[type=text], .form-field input[type=date], .form-field textarea, .form-field select{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box; min-width:0;}
   .form-field textarea{resize:vertical; min-height:60px; font-family:'Inter',sans-serif;}
@@ -494,6 +495,15 @@
   </div>
 </div>
 
+<div id="alertaRenovacaoModal" style="display:none; position:fixed; inset:0; background:rgba(20,30,29,0.65); z-index:900; align-items:center; justify-content:center; padding:24px;">
+  <div style="background:#fff; border-radius:14px; max-width:480px; width:100%; padding:24px 26px; box-shadow:0 12px 40px rgba(0,0,0,.3); max-height:80vh; display:flex; flex-direction:column;">
+    <h3 style="margin:0 0 4px; color:var(--amber);">⚠ Renovação de contrato</h3>
+    <p class="note" style="margin-top:2px;">Mês de solicitar renovação — preencha "Data de início das negociações" no convênio pra este aviso parar de aparecer.</p>
+    <div id="alertaRenovacaoLista" style="overflow-y:auto; margin:6px 0 18px;"></div>
+    <button type="button" class="btn-primary" onclick="fecharAlertaRenovacao()">OK</button>
+  </div>
+</div>
+
 <script>
 const SUPABASE_URL = "https://ylalexswpruqfvinkhdl.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Gj4D217YeW_puPB9ynf16g_shx1Oo9n";
@@ -568,6 +578,7 @@ async function iniciarAposLogin(){
   document.getElementById('logoutBtn').style.display = '';
   document.getElementById('statusCarregamento').style.display = '';
   registrarAcesso();
+  verificarRenovacoesContrato();
   carregarTudo().catch(e => {
     document.getElementById('statusCarregamento').textContent = 'Erro ao carregar: ' + e.message;
     console.error(e);
@@ -1902,6 +1913,42 @@ let CONTRATO_SELECIONADO_ID = null;
 let contratosCarregados = false;
 let contratoSearchWired = false;
 
+// ---- Alerta de renovação (10/09/2026, pedido do usuário) ----
+// Roda logo apos o login (nao espera o clique na aba) - confere se o mes
+// atual bate com "Data para solicitar renovação" de algum convenio e ainda
+// nao tem "Data de início das negociações" preenchida (esse campo E' o que
+// faz o aviso parar de aparecer, por pedido explicito do usuario). O botao
+// OK so' fecha "momentaneamente" (nao salva nada) - reaparece no proximo
+// login se a condicao continuar valendo.
+const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+function calcularAlertasRenovacao(contratos){
+  const hoje = new Date();
+  const mesAtual = stripAccents(MESES_PT[hoje.getMonth()]).toLowerCase();
+  const ultimoDia = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).toLocaleDateString('pt-BR');
+  return contratos
+    .filter(c => c.data_solicitar_reajuste && !c.data_inicio_negociacao && stripAccents(c.data_solicitar_reajuste).trim().toLowerCase() === mesAtual)
+    .map(c => ({ convenio: c.convenio, mensagem: `Mês de solicitar renovação do contrato até ${ultimoDia}` }));
+}
+
+async function verificarRenovacoesContrato(){
+  const { data, error } = await sb.rpc('get_convenios_contratos', { p_identity: IDENTITY, p_password: SENHA });
+  if(error || !data) { console.error('Erro ao verificar renovações', error); return; }
+  if(!contratosCarregados){ CONTRATOS = data; contratosCarregados = true; }
+  const alertas = calcularAlertasRenovacao(data);
+  if(!alertas.length) return;
+  document.getElementById('alertaRenovacaoLista').innerHTML = alertas.map(a => `
+    <div style="padding:10px 0; border-bottom:1px dotted var(--line);">
+      <strong>${escAttr(a.convenio)}</strong><br>
+      <span style="color:var(--amber);">${escAttr(a.mensagem)}</span>
+    </div>
+  `).join('');
+  document.getElementById('alertaRenovacaoModal').style.display = 'flex';
+}
+
+function fecharAlertaRenovacao(){
+  document.getElementById('alertaRenovacaoModal').style.display = 'none';
+}
+
 function escAttr(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function wireContratoSearch(){
@@ -1944,7 +1991,7 @@ function renderContratoLista(){
       <li class="rank-item${c.id===CONTRATO_SELECIONADO_ID?' selected':''}" onclick="selecionarConvenio(${c.id})">
         <div class="contrato-lista-item">
           <span class="rl-nome">${escAttr(c.convenio)}</span>
-          ${c.contrato_arquivo_nome ? '<span class="tag diff">contrato ok</span>' : '<span class="tag invest">sem contrato</span>'}
+          ${c.contrato_arquivo_nome ? '<span class="tag diff">ok</span>' : '<span class="tag invest">sem contrato</span>'}
         </div>
       </li>
     `).join('')}
@@ -2007,9 +2054,11 @@ function renderContratoDetalhe(c){
           <div class="form-field"><label>Conta recebedora — Consultas/Exames</label><input type="text" id="cf_contaConsultas" value="${escAttr(c && c.conta_consultas_exames)}"></div>
           <div class="form-field"><label>Conta recebedora — Cirurgias</label><input type="text" id="cf_contaCirurgias" value="${escAttr(c && c.conta_cirurgias)}"></div>
           <div class="form-field"><label>Data de assinatura do contrato</label><input type="date" id="cf_dataAssinatura" value="${(c && c.data_assinatura) || ''}"></div>
+          <div class="form-section-label">Renovação Contratual</div>
+          <div class="form-field"><label>Data para solicitar renovação</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
+          <div class="form-field"><label>Data Base que entra em vigor a tabela nova</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
+          <div class="form-field"><label>Data de início das negociações</label><input type="date" id="cf_dataInicioNeg" value="${(c && c.data_inicio_negociacao) || ''}"></div>
           <div class="form-field"><label>Status da negociação</label><input type="text" id="cf_status" value="${escAttr(c && c.status_negociacao)}"></div>
-          <div class="form-field"><label>Quando solicitar o reajuste</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
-          <div class="form-field"><label>Quando o reajuste entra em vigor</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
           <div class="form-field"><label>E-mail para negociação</label><input type="text" id="cf_email" value="${escAttr(c && c.email_negociacao)}"></div>
           <div class="form-field"><label>Telefone</label><input type="text" id="cf_telefone" value="${escAttr(c && c.telefone)}"></div>
         </div>
@@ -2192,6 +2241,7 @@ async function salvarContrato(id){
     p_contrato_arquivo_nome: arquivo.nome,
     p_contrato_arquivo_base64: arquivo.base64,
     p_categoria: document.getElementById('cf_categoria').value,
+    p_data_inicio_negociacao: get('cf_dataInicioNeg') || null,
   });
   btn.disabled = false; btn.textContent = 'Salvar convênio';
   if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
