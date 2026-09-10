@@ -2236,11 +2236,11 @@ function renderContratoDetalhe(c){
       </div>
     </div>
 
-    ${c ? `
     <div class="accordion-item">
-      <button type="button" class="accordion-header" onclick="toggleAccordion('accAditivos')">
-        <span>Aditivos</span><span class="accordion-caret">▾</span>
+      <button type="button" class="accordion-header" ${c ? `onclick="toggleAccordion('accAditivos')"` : 'style="cursor:default; color:var(--stone);"'}>
+        <span>Aditivos</span><span class="accordion-caret">${c ? '▾' : ''}</span>
       </button>
+      ${c ? `
       <div class="accordion-body" id="accAditivos" style="display:none;">
         <p class="note">Cada aditivo fica registrado com data e arquivo próprios — o histórico não se perde quando vier um novo.</p>
         <div id="aditivosList" style="margin-bottom:14px;">${renderAditivosList(c.id)}</div>
@@ -2251,8 +2251,8 @@ function renderContratoDetalhe(c){
           <button type="button" class="btn-mini" onclick="adicionarAditivo(${c.id})">+ Adicionar aditivo</button>
         </div>
       </div>
+      ` : `<div class="accordion-body"><p class="note" style="margin:0;">Salve o convênio primeiro — os aditivos ficam disponíveis depois que ele existir.</p></div>`}
     </div>
-    ` : ''}
 
     <button type="button" class="btn-primary" id="cf_salvarBtn" style="margin-top:16px;" onclick="salvarContrato(${c ? c.id : 'null'})">Salvar convênio</button>
     ${c ? `<div class="sub" style="margin:10px 0 0;">Última edição: ${c.atualizado_em ? new Date(c.atualizado_em).toLocaleString('pt-BR') : '—'}${c.atualizado_por ? ' · '+escAttr(c.atualizado_por) : ''}</div>` : ''}
