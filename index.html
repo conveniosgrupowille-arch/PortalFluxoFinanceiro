@@ -100,13 +100,19 @@
      fixas abaixo), e o valor quebra em 2 linhas se precisar em vez de
      empurrar a tabela pra fora da tela. */
   table.fluxo-table{border-collapse:collapse; table-layout:fixed; width:100%; margin-bottom:8px;}
-  table.fluxo-table th, table.fluxo-table td{padding:4px 4px; font-size:10px; text-align:right; border-bottom:1px dotted var(--line); border-right:1px dotted var(--line); white-space:normal;}
+  /* overflow-wrap:anywhere = último recurso (10/09/2026, pedido "os números
+     estão vazando pra outras colunas") - table-layout:fixed sozinho não
+     impede um número (um "token" sem espaço, ex: "92.918,65") de vazar
+     visualmente pra célula vizinha quando é mais largo que a coluna; com
+     overflow-wrap:anywhere o navegador só quebra no meio do número como
+     ÚLTIMO recurso, quando não vazar é impossível de outro jeito. */
+  table.fluxo-table th, table.fluxo-table td{padding:3px 3px; font-size:9.5px; text-align:right; border-bottom:1px dotted var(--line); border-right:1px dotted var(--line); white-space:normal; overflow-wrap:anywhere;}
   table.fluxo-table thead th{border-bottom:1px solid var(--line);}
   table.fluxo-table th:last-child, table.fluxo-table td:last-child{border-right:none;}
-  table.fluxo-table th:first-child, table.fluxo-table td:first-child{text-align:left; width:130px; border-right:1px solid var(--line);}
-  table.fluxo-table th{color:var(--slate); font-weight:700; font-size:9px; text-transform:uppercase; text-align:center;}
+  table.fluxo-table th:first-child, table.fluxo-table td:first-child{text-align:left; width:118px; border-right:1px solid var(--line);}
+  table.fluxo-table th{color:var(--slate); font-weight:700; font-size:8.5px; text-transform:uppercase; text-align:center;}
   table.fluxo-table th:first-child{text-align:left;}
-  table.fluxo-table td.fluxo-total, table.fluxo-table th.fluxo-total{font-weight:700; background:var(--panel); width:78px; font-size:9.5px;}
+  table.fluxo-table td.fluxo-total, table.fluxo-table th.fluxo-total{font-weight:700; background:var(--panel); width:96px; font-size:9px;}
   table.fluxo-table tr.fluxo-total-row td{font-weight:700; background:#FBF4D9; border-top:2px solid var(--line);}
   table.fluxo-table tr.fluxo-total-row td:first-child{background:#FBF4D9;}
   .fluxo-quinzena{background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03); overflow-x:auto; max-width:100%;}
