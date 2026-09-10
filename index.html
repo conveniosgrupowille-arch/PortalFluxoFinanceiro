@@ -812,7 +812,7 @@ async function carregarTudo(){
 
   const [
     cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos, orcamentoItens,
-    examesRaw, atendidosGeral,
+    examesRaw, atendidosGeral, repasseMedico,
   ] = await Promise.all([
     fetchAll('faturados_cirurgias', 'convenio,data_vencimento,valor_conta,num_fatura'),
     fetchAll('recebimentos_backfill', '*'),
@@ -835,6 +835,18 @@ async function carregarTudo(){
     // (computeFullDashboard, dedupKey = conta || ficha+data+honorarioOriginal).
     fetchAll('faturados_exames', 'ficha,conta,convenio,status_fat,paciente,data_atendimento,medico,procedimento,total_honorarios,data_vencimento,num_fatura'),
     fetchAll('atendidos_geral', 'num_ficha,paciente,convenio,procedimento,data_atendimento,valor'),
+    // repasse_medico: "Não Faturado" da Previsão usa essa tabela, não mais
+    // atendidos_geral (10/09/2026, usuário apontou - "antes pegava da
+    // planilha de repasse que já foi atualizada hoje, tem os convênios
+    // pacientes e valores"). Achado real: atendidos_geral resolve
+    // convênio via SFCEV030, que só ganha linha quando o item entra no
+    // FATURAMENTO - por isso item recém-atendido (ainda não faturado, ou
+    // seja EXATAMENTE o que "Não Faturado" precisa mostrar) fica com
+    // convênio em branco na maioria das vezes. repasse_medico usa outra
+    // extração que já resolve o convênio certo mesmo pra quem ainda não
+    // foi faturado (confirmado: Set/26 tinha 0 de 776 itens com convênio
+    // em branco, contra 564 de 760 no atendidos_geral).
+    fetchAll('repasse_medico', '*'),
   ]);
   const faturadosParaDivergencias = examesRaw;
   aplicarDedupContaExames(faturadosParaDivergencias);
@@ -898,7 +910,7 @@ async function carregarTudo(){
 
   processarOrcamento(orcamentoItens);
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
-  processarPrevisao(faturadosParaDivergencias, atendidosGeral);
+  processarPrevisao(faturadosParaDivergencias, repasseMedico);
   processarMedicos(faturadosParaDivergencias);
   processarCortesias(atendidosGeral);
   montarTabs();
@@ -1671,7 +1683,7 @@ let PREVISAO_POR_MES = {};
 let PREVISAO_MESES = [];
 let PREVISAO_MES_ATUAL = null;
 
-function processarPrevisao(faturadosRows, atendidosRows){
+function processarPrevisao(faturadosRows, repasseRows){
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const hojeISO = hoje.toISOString().slice(0,10);
 
@@ -1682,41 +1694,44 @@ function processarPrevisao(faturadosRows, atendidosRows){
     backfillPagamento: r.num_fatura ? (window.BACKFILL_BY_CHAVE||{})['Exames|' + r.num_fatura] : null,
   }));
 
-  // "Não Faturado" (10/09/2026, pedido do usuário: "deve trazer todos os
-  // valores atendidos por convênio do dia 1º do mês até o momento") - antes
-  // só olhava linhas que JÁ estavam em faturados_exames com status
-  // diferente de "Faturado", ou seja, atendimento que nem chegou a entrar
-  // no pipeline de faturamento ficava de fora (ficava R$0,00, era o bug
-  // reportado). Agora usa atendidos_geral (fonte real do que foi
-  // atendido) menos o que já está reconhecido em faturados_exames (pra não
-  // contar 2x com as colunas Faturado/Recebido/Glosado, que já vêm de
-  // faturados_exames) - o resultado é o que foi atendido e ainda não
-  // apareceu de jeito nenhum no faturamento.
-  const atendidos = (atendidosRows||[]).filter(r => r.data_atendimento).map(r => ({
-    convenio: normalizeConvenio(r.convenio),
-    mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
-    valor: r.valor || 0,
-  }));
-  const atendidoPorConvMes = {};
-  atendidos.forEach(r => {
+  // "Não Faturado" (10/09/2026, pedido do usuário) - 1ª tentativa usou
+  // atendidos_geral, mas o usuário apontou que essa tabela resolve
+  // convênio via SFCEV030, que só ganha linha quando o item entra no
+  // FATURAMENTO - exatamente o oposto do que "Não Faturado" precisa (item
+  // que ainda NÃO foi faturado, quase sempre sem SFCEV030 ainda, por isso
+  // ~75% vinha com convênio em branco em Set/26). Corrigido usando
+  // repasse_medico (extração diferente, já usada pro relatório de Repasse
+  // Médico, atualizada todo dia): linhas com situacao_pagamento NULO ainda
+  // não foram reconhecidas em nenhuma fatura - são o "Não Faturado" de
+  // verdade, e essa fonte resolve o convênio corretamente mesmo pra elas
+  // (testado: 0 de 776 itens de Set/26 com convênio em branco, contra 564
+  // de 760 no atendidos_geral).
+  const naoFaturados = (repasseRows||[])
+    .filter(r => r.data_atendimento && !r.situacao_pagamento && r.data)
+    .map(r => ({
+      convenio: normalizeConvenio(r.data['Convênio']),
+      mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+      valor: parseFloat(r.data['Valor']) || 0,
+    }));
+  const naoFaturadoPorConvMes = {};
+  naoFaturados.forEach(r => {
     const k = r.mes + '|' + r.convenio;
-    (atendidoPorConvMes[k] ||= { valor: 0, itens: 0 });
-    atendidoPorConvMes[k].valor += r.valor;
-    atendidoPorConvMes[k].itens += 1;
+    (naoFaturadoPorConvMes[k] ||= { valor: 0, itens: 0 });
+    naoFaturadoPorConvMes[k].valor += r.valor;
+    naoFaturadoPorConvMes[k].itens += 1;
   });
 
   function mesKeyPrev(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
   // /26 - mesma convenção do Fluxo de Pagamentos (montarMonthPicker) pra
-  // não poluir o seletor de mês com histórico antigo de atendidos_geral
-  // (fonte bem mais ampla que faturados_exames).
-  PREVISAO_MESES = [...new Set([...rows.map(r=>r.mes), ...atendidos.map(r=>r.mes)])].filter(m=>m.endsWith('/26')).sort((a,b)=>mesKeyPrev(a)-mesKeyPrev(b));
+  // não poluir o seletor de mês com histórico antigo de repasse_medico.
+  PREVISAO_MESES = [...new Set([...rows.map(r=>r.mes), ...naoFaturados.map(r=>r.mes)])].filter(m=>m.endsWith('/26')).sort((a,b)=>mesKeyPrev(a)-mesKeyPrev(b));
 
   PREVISAO_POR_MES = {};
   PREVISAO_MESES.forEach(mes => {
     const doMes = rows.filter(r => r.mes === mes);
     const byConv = {};
     doMes.forEach(r => { (byConv[r.convenio] ||= []).push(r); });
-    atendidos.filter(r => r.mes === mes).forEach(r => { if(!byConv[r.convenio]) byConv[r.convenio] = []; });
+    naoFaturados.filter(r => r.mes === mes).forEach(r => { if(!byConv[r.convenio]) byConv[r.convenio] = []; });
     const sumVal = list => Math.round(list.reduce((s,r)=>s+(r.valorFinal||0)*(1-impostoPctParaRow(r)),0)*100)/100;
     const items = Object.entries(byConv).map(([conv, rs]) => {
       const isDireto = DIRECT_PAY.includes(conv.toUpperCase());
@@ -1726,11 +1741,9 @@ function processarPrevisao(faturadosRows, atendidosRows){
       const glosadoRows = faturadoTodasRows.filter(r => isGlosado(r));
       const faturadoAguardRows = faturadoTodasRows.filter(r => !isEfetivamenteRecebido(r, hojeISO) && !isGlosado(r));
 
-      const atendidoInfo = atendidoPorConvMes[mes + '|' + conv] || { valor: 0, itens: 0 };
-      const atendidoValorLiquido = Math.round(atendidoInfo.valor * (1 - impostoPctParaRow({convenio: conv})) * 100) / 100;
-      const jaReconhecidoValor = isDireto ? 0 : sumVal(rs);
-      const naoFaturadoValor = isDireto ? 0 : Math.max(0, Math.round((atendidoValorLiquido - jaReconhecidoValor) * 100) / 100);
-      const naoFaturadoItens = isDireto ? 0 : Math.max(0, atendidoInfo.itens - rs.length);
+      const naoFaturadoInfo = isDireto ? { valor: 0, itens: 0 } : (naoFaturadoPorConvMes[mes + '|' + conv] || { valor: 0, itens: 0 });
+      const naoFaturadoValor = Math.round(naoFaturadoInfo.valor * (1 - impostoPctParaRow({convenio: conv})) * 100) / 100;
+      const naoFaturadoItens = naoFaturadoInfo.itens;
 
       return {
         nome: conv ? titleCase(conv) : '(Convênio não identificado)', itens: rs.length + naoFaturadoItens,
