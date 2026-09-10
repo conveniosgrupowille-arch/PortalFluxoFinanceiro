@@ -114,19 +114,22 @@
      fixas abaixo), e o valor quebra em 2 linhas se precisar em vez de
      empurrar a tabela pra fora da tela. */
   table.fluxo-table{border-collapse:collapse; table-layout:fixed; width:100%; margin-bottom:8px;}
-  /* overflow-wrap:anywhere = último recurso (10/09/2026, pedido "os números
-     estão vazando pra outras colunas") - table-layout:fixed sozinho não
-     impede um número (um "token" sem espaço, ex: "92.918,65") de vazar
-     visualmente pra célula vizinha quando é mais largo que a coluna; com
-     overflow-wrap:anywhere o navegador só quebra no meio do número como
-     ÚLTIMO recurso, quando não vazar é impossível de outro jeito. */
-  table.fluxo-table th, table.fluxo-table td{padding:3px 3px; font-size:9.5px; text-align:right; border-bottom:1px dotted var(--line); border-right:1px dotted var(--line); white-space:normal; overflow-wrap:anywhere;}
+  /* Tamanho de fonte NÃO fica fixo no CSS (10/09/2026, 3a rodada - "essa
+     quebra de valor ficou estranha, ajusta pra ficar na mesma linha") -
+     ajustarFonteFluxoTable() (JS) mede o texto mais largo de cada tabela
+     depois de renderizada e calcula o maior tamanho de fonte que cabe SEM
+     quebrar, célula por célula, coluna por coluna - number nunca mais fica
+     cortado/quebrado no meio nem vaza pra célula vizinha, e não fica
+     pequeno à toa quando sobra espaço. white-space:nowrap é o padrão; só
+     quando nem a fonte mínima cabe (caso extremo) o JS libera quebra.*/
+  table.fluxo-table th, table.fluxo-table td{padding:3px 4px; font-size:10.5px; text-align:right; border-bottom:1px dotted var(--line); border-right:1px dotted var(--line); white-space:nowrap;}
   table.fluxo-table thead th{border-bottom:1px solid var(--line);}
   table.fluxo-table th:last-child, table.fluxo-table td:last-child{border-right:none;}
-  table.fluxo-table th:first-child, table.fluxo-table td:first-child{text-align:left; width:118px; border-right:1px solid var(--line);}
-  table.fluxo-table th{color:var(--slate); font-weight:700; font-size:8.5px; text-transform:uppercase; text-align:center;}
+  table.fluxo-table th:first-child, table.fluxo-table td:first-child{text-align:left; width:100px; border-right:1px solid var(--line); white-space:normal;}
+  table.fluxo-table th{color:var(--slate); font-weight:700; text-transform:uppercase; text-align:center;}
   table.fluxo-table th:first-child{text-align:left;}
-  table.fluxo-table td.fluxo-total, table.fluxo-table th.fluxo-total{font-weight:700; background:var(--panel); width:96px; font-size:9px;}
+  table.fluxo-table td.fluxo-total, table.fluxo-table th.fluxo-total{font-weight:700; background:var(--panel); width:96px;}
+  table.fluxo-table .banco-tag{display:block; margin-left:0;}
   table.fluxo-table tr.fluxo-total-row td{font-weight:700; background:#FBF4D9; border-top:2px solid var(--line);}
   table.fluxo-table tr.fluxo-total-row td:first-child{background:#FBF4D9;}
   .fluxo-quinzena{background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03); overflow-x:auto; max-width:100%;}
@@ -235,7 +238,7 @@
   </nav>
   <div class="main-content">
   <div class="wrap">
-  <div id="loginGate" style="display:flex; justify-content:center; padding-top:48px;">
+  <div id="loginGate" style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:70;">
     <div class="card" style="width:100%; max-width:320px;">
       <h2 style="text-align:center; margin-bottom:16px;">Entrar</h2>
       <form id="loginForm" onsubmit="return false;" style="display:flex; flex-direction:column; gap:14px;">
@@ -304,7 +307,7 @@
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
           <h2>Fluxo de receitas</h2>
-          <p class="note" style="margin-bottom:4px;">Data de vencimento real, dia a dia.</p>
+          <p class="note" style="margin-bottom:4px;">Data de vencimento real, dia a dia. Valores em R$ (símbolo omitido nas células pra caber os 15/16 dias sem quebrar linha).</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarFluxo" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -356,8 +359,13 @@
         </div>
       </div>
       <div class="card" id="medicoProcCard" style="display:none;">
-        <h3>Procedimentos — <span id="medicoProcNome" style="color:var(--teal-deep);"></span></h3>
-        <div class="sub">Mesmo mês selecionado acima · clique no médico de novo pra fechar</div>
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+          <div>
+            <h3>Procedimentos — <span id="medicoProcNome" style="color:var(--teal-deep);"></span></h3>
+            <div class="sub">Mesmo mês selecionado acima · clique no médico de novo pra fechar</div>
+          </div>
+          <select id="medicoProcConvenioFiltro" style="min-width:180px;"></select>
+        </div>
         <ul class="rank-list" id="listMedicoProc"></ul>
       </div>
     </section>
@@ -633,6 +641,10 @@ function normalizeConvenio(raw){
 }
 function titleCase(s){ return String(s||'').toLowerCase().replace(/(^|\s|\/)([a-zà-ÿ])/g, (m,p1,p2)=>p1+p2.toUpperCase()); }
 function fmtMoney(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+// Sem "R$" - só pra tabela de quinzena (10/09/2026, ajuste de espaço - 15
+// colunas de dia não sobra espaço pro prefixo sem quebrar linha; contexto
+// de moeda já fica claro pelo resto da tela/nota da aba).
+function fmtNum(v){ return (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseDateISO(s){ if(!s) return null; const [a,m,d]=s.split('-'); return new Date(+a,+m-1,+d); }
 function mesLabelFromDate(d){ return MES_NOMES[d.getMonth()+1] + '/' + String(d.getFullYear()).slice(2); }
 
@@ -886,7 +898,7 @@ async function carregarTudo(){
 
   processarOrcamento(orcamentoItens);
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
-  processarPrevisao(faturadosParaDivergencias);
+  processarPrevisao(faturadosParaDivergencias, atendidosGeral);
   processarMedicos(faturadosParaDivergencias);
   processarCortesias(atendidosGeral);
   montarTabs();
@@ -995,10 +1007,10 @@ function getFluxoPagamentoMes(mes){
 
 function somaStatusVal(v){ return v ? (v.recebido||0)+(v.aReceber||0) : 0; }
 function celulaHtml(v){
-  if (!v || somaStatusVal(v) <= 0) return '<td style="color:#aaa;">' + fmtMoney(0) + '</td>';
+  if (!v || somaStatusVal(v) <= 0) return '<td style="color:#aaa;">' + fmtNum(0) + '</td>';
   const linhas = [];
-  if (v.recebido) linhas.push('<span class="fluxo-recebido">'+fmtMoney(v.recebido)+'</span>');
-  if (v.aReceber) linhas.push('<span class="fluxo-a-receber">'+fmtMoney(v.aReceber)+'</span>');
+  if (v.recebido) linhas.push('<span class="fluxo-recebido">'+fmtNum(v.recebido)+'</span>');
+  if (v.aReceber) linhas.push('<span class="fluxo-a-receber">'+fmtNum(v.aReceber)+'</span>');
   return '<td>' + linhas.join('<br>') + '</td>';
 }
 
@@ -1160,7 +1172,53 @@ function renderFluxo(){
   container.innerHTML =
     '<div class="fluxo-quinzena">' + tabelaQuinzenaHtml('1ª Quinzena', porDia, 1, 15, mesNum) + '</div>' +
     '<div class="fluxo-quinzena" style="margin-top:20px;">' + tabelaQuinzenaHtml('2ª Quinzena', porDia, 16, diasNoMes, mesNum) + '</div>';
+  ajustarFonteFluxoTables(container);
 }
+
+// Ajuste de fonte pra caber tudo numa linha só (10/09/2026, "essa quebra de
+// valor ficou estranha, ajusta pra ficar na mesma linha") - mede o texto
+// mais largo entre as células de dia de cada tabela e acha o maior
+// tamanho de fonte que cabe sem quebrar (table-layout:fixed já garante que
+// a largura da COLUNA não muda com a fonte, então não tem efeito
+// cascata/circular em medir depois de aplicar).
+function ajustarFonteFluxoTables(container){
+  container.querySelectorAll('table.fluxo-table').forEach(ajustarFonteFluxoTable);
+}
+function ajustarFonteFluxoTable(table){
+  const colAmostra = table.querySelector('tbody tr td:nth-child(2)');
+  if (!colAmostra) return;
+  const larguraDisponivel = colAmostra.getBoundingClientRect().width - 8;
+  const celulasDia = [...table.querySelectorAll('tbody td:not(:first-child)')];
+  let maiorTexto = '';
+  celulasDia.forEach(td => { if (td.textContent.length > maiorTexto.length) maiorTexto = td.textContent; });
+  if (!maiorTexto) return;
+
+  const ctx = ajustarFonteFluxoTable._ctx || (ajustarFonteFluxoTable._ctx = document.createElement('canvas').getContext('2d'));
+  const MIN = 7.5, MAX = 10.5;
+  let fonte = MIN;
+  for (let f = MAX; f >= MIN; f -= 0.5) {
+    ctx.font = `700 ${f}px 'Inter', sans-serif`;
+    if (ctx.measureText(maiorTexto).width <= larguraDisponivel) { fonte = f; break; }
+  }
+  table.querySelectorAll('th, td').forEach(el => { el.style.fontSize = fonte + 'px'; });
+
+  // Último recurso: nem no tamanho mínimo coube - libera quebra só nessa tabela.
+  ctx.font = `700 ${MIN}px 'Inter', sans-serif`;
+  const cabeNoMinimo = ctx.measureText(maiorTexto).width <= larguraDisponivel;
+  celulasDia.forEach(td => {
+    td.style.whiteSpace = cabeNoMinimo ? 'nowrap' : 'normal';
+    td.style.overflowWrap = cabeNoMinimo ? 'normal' : 'anywhere';
+  });
+  table.querySelectorAll('thead th:not(:first-child)').forEach(th => { th.style.whiteSpace = cabeNoMinimo ? 'nowrap' : 'normal'; });
+}
+let _resizeFluxoTimeout = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeFluxoTimeout);
+  _resizeFluxoTimeout = setTimeout(() => {
+    const container = document.getElementById('fluxoContainer');
+    if (container) ajustarFonteFluxoTables(container);
+  }, 200);
+});
 
 // ==================== CONFERENCIA POR BANCO ====================
 function chaveConf(conv, mes, dia){ return conv + '|' + mes + '|' + dia; }
@@ -1613,7 +1671,7 @@ let PREVISAO_POR_MES = {};
 let PREVISAO_MESES = [];
 let PREVISAO_MES_ATUAL = null;
 
-function processarPrevisao(faturadosRows){
+function processarPrevisao(faturadosRows, atendidosRows){
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const hojeISO = hoje.toISOString().slice(0,10);
 
@@ -1624,27 +1682,60 @@ function processarPrevisao(faturadosRows){
     backfillPagamento: r.num_fatura ? (window.BACKFILL_BY_CHAVE||{})['Exames|' + r.num_fatura] : null,
   }));
 
+  // "Não Faturado" (10/09/2026, pedido do usuário: "deve trazer todos os
+  // valores atendidos por convênio do dia 1º do mês até o momento") - antes
+  // só olhava linhas que JÁ estavam em faturados_exames com status
+  // diferente de "Faturado", ou seja, atendimento que nem chegou a entrar
+  // no pipeline de faturamento ficava de fora (ficava R$0,00, era o bug
+  // reportado). Agora usa atendidos_geral (fonte real do que foi
+  // atendido) menos o que já está reconhecido em faturados_exames (pra não
+  // contar 2x com as colunas Faturado/Recebido/Glosado, que já vêm de
+  // faturados_exames) - o resultado é o que foi atendido e ainda não
+  // apareceu de jeito nenhum no faturamento.
+  const atendidos = (atendidosRows||[]).filter(r => r.data_atendimento).map(r => ({
+    convenio: normalizeConvenio(r.convenio),
+    mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+    valor: r.valor || 0,
+  }));
+  const atendidoPorConvMes = {};
+  atendidos.forEach(r => {
+    const k = r.mes + '|' + r.convenio;
+    (atendidoPorConvMes[k] ||= { valor: 0, itens: 0 });
+    atendidoPorConvMes[k].valor += r.valor;
+    atendidoPorConvMes[k].itens += 1;
+  });
+
   function mesKeyPrev(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
-  PREVISAO_MESES = [...new Set(rows.map(r=>r.mes))].sort((a,b)=>mesKeyPrev(a)-mesKeyPrev(b));
+  // /26 - mesma convenção do Fluxo de Pagamentos (montarMonthPicker) pra
+  // não poluir o seletor de mês com histórico antigo de atendidos_geral
+  // (fonte bem mais ampla que faturados_exames).
+  PREVISAO_MESES = [...new Set([...rows.map(r=>r.mes), ...atendidos.map(r=>r.mes)])].filter(m=>m.endsWith('/26')).sort((a,b)=>mesKeyPrev(a)-mesKeyPrev(b));
 
   PREVISAO_POR_MES = {};
   PREVISAO_MESES.forEach(mes => {
     const doMes = rows.filter(r => r.mes === mes);
     const byConv = {};
     doMes.forEach(r => { (byConv[r.convenio] ||= []).push(r); });
+    atendidos.filter(r => r.mes === mes).forEach(r => { if(!byConv[r.convenio]) byConv[r.convenio] = []; });
     const sumVal = list => Math.round(list.reduce((s,r)=>s+(r.valorFinal||0)*(1-impostoPctParaRow(r)),0)*100)/100;
     const items = Object.entries(byConv).map(([conv, rs]) => {
       const isDireto = DIRECT_PAY.includes(conv.toUpperCase());
       const diretoRows = isDireto ? rs : [];
-      const naoFaturadoRows = !isDireto ? rs.filter(r => r.statusFat !== 'Faturado') : [];
       const faturadoTodasRows = !isDireto ? rs.filter(r => r.statusFat === 'Faturado') : [];
       const recebidoRows = faturadoTodasRows.filter(r => isEfetivamenteRecebido(r, hojeISO)).concat(diretoRows);
       const glosadoRows = faturadoTodasRows.filter(r => isGlosado(r));
       const faturadoAguardRows = faturadoTodasRows.filter(r => !isEfetivamenteRecebido(r, hojeISO) && !isGlosado(r));
+
+      const atendidoInfo = atendidoPorConvMes[mes + '|' + conv] || { valor: 0, itens: 0 };
+      const atendidoValorLiquido = Math.round(atendidoInfo.valor * (1 - impostoPctParaRow({convenio: conv})) * 100) / 100;
+      const jaReconhecidoValor = isDireto ? 0 : sumVal(rs);
+      const naoFaturadoValor = isDireto ? 0 : Math.max(0, Math.round((atendidoValorLiquido - jaReconhecidoValor) * 100) / 100);
+      const naoFaturadoItens = isDireto ? 0 : Math.max(0, atendidoInfo.itens - rs.length);
+
       return {
-        nome: titleCase(conv), itens: rs.length,
+        nome: titleCase(conv), itens: rs.length + naoFaturadoItens,
         faturado: { valor: sumVal(faturadoAguardRows), itens: faturadoAguardRows.length },
-        naoFaturado: { valor: sumVal(naoFaturadoRows), itens: naoFaturadoRows.length },
+        naoFaturado: { valor: naoFaturadoValor, itens: naoFaturadoItens },
         recebido: { valor: sumVal(recebidoRows), itens: recebidoRows.length },
         glosado: { valor: sumVal(glosadoRows), itens: glosadoRows.length },
       };
@@ -1708,11 +1799,13 @@ let MEDICOS_ROWS = [];
 let MEDICOS_MESES = [];
 let MEDICOS_MES_ATUAL = 'Todos';
 let MEDICOS_ABERTO = null;
+let MEDICOS_CONVENIO_FILTRO = 'Todos os convênios';
 
 function processarMedicos(faturadosRows){
   MEDICOS_ROWS = faturadosRows.filter(r => r.data_atendimento && r.medico).map(r => ({
     medico: titleCase(cleanDoc(r.medico)), procedimento: titleCase((r.procedimento||'').slice(0,55)),
     valor: r.valorFinal || 0, mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
+    convenio: titleCase(normalizeConvenio(r.convenio)),
   }));
 
   function mesKeyMed(m){ const [n,a]=m.split('/'); return parseInt(a,10)*100 + MES_ORDER.indexOf(n); }
@@ -1749,6 +1842,7 @@ function renderMedicosTab(){
     li.addEventListener('click', () => {
       const nome = li.dataset.nome;
       MEDICOS_ABERTO = (MEDICOS_ABERTO === nome) ? null : nome;
+      MEDICOS_CONVENIO_FILTRO = 'Todos os convênios';
       renderMedicosTab();
       if (MEDICOS_ABERTO) document.getElementById('medicoProcCard').scrollIntoView({behavior:'smooth', block:'nearest'});
     });
@@ -1763,8 +1857,22 @@ function renderMedicosTab(){
   if (!MEDICOS_ABERTO) { card.style.display = 'none'; return; }
   card.style.display = '';
   document.getElementById('medicoProcNome').textContent = MEDICOS_ABERTO;
+
+  const rowsDoMedico = rowsDoMes.filter(r => r.medico === MEDICOS_ABERTO);
+
+  // Filtro de convênio (10/09/2026, pedido do usuário: "quando eu escolher
+  // o médico pode colocar um menu lista para filtrar convênio se o gestor
+  // quiser") - opcional, "Todos os convênios" é o padrão.
+  const conveniosDoMedico = ['Todos os convênios', ...new Set(rowsDoMedico.map(r=>r.convenio).filter(Boolean))].sort((a,b)=> a==='Todos os convênios'?-1:b==='Todos os convênios'?1:a.localeCompare(b,'pt-BR'));
+  if (!conveniosDoMedico.includes(MEDICOS_CONVENIO_FILTRO)) MEDICOS_CONVENIO_FILTRO = 'Todos os convênios';
+  const selConvenio = document.getElementById('medicoProcConvenioFiltro');
+  selConvenio.innerHTML = conveniosDoMedico.map(c => `<option value="${escAttr(c)}"${c===MEDICOS_CONVENIO_FILTRO?' selected':''}>${escAttr(c)}</option>`).join('');
+  selConvenio.onchange = () => { MEDICOS_CONVENIO_FILTRO = selConvenio.value; renderMedicosTab(); };
+
+  const rowsFiltradas = MEDICOS_CONVENIO_FILTRO === 'Todos os convênios' ? rowsDoMedico : rowsDoMedico.filter(r => r.convenio === MEDICOS_CONVENIO_FILTRO);
+
   const porProcMedico = {};
-  rowsDoMes.filter(r => r.medico === MEDICOS_ABERTO).forEach(r => {
+  rowsFiltradas.forEach(r => {
     if (!r.procedimento) return;
     (porProcMedico[r.procedimento] ||= {valor:0, qtd:0}); porProcMedico[r.procedimento].valor += r.valor; porProcMedico[r.procedimento].qtd++;
   });
