@@ -19,15 +19,26 @@
     --panel:#EDECE7; --paper:#F6F5F1; --white:#FFFFFF; --amber:#9C6B14;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  /* overflow-x:hidden só no <html> (raiz) - no <body> quebraria o
+     position:sticky do topbar/sidebar (o overflow no body cria um
+     contexto de rolagem PRÓPRIO, diferente do viewport, e sticky perde a
+     referência; no elemento raiz isso não acontece porque o overflow dele
+     já É o overflow do viewport). Achado testando com Puppeteer 10/09/2026. */
+  html{margin:0; padding:0; max-width:100%; overflow-x:hidden;}
+  body{margin:0; padding:0; max-width:100%;}
   body{background:var(--paper); color:var(--slate); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
   .mono{font-family:'IBM Plex Mono',monospace;}
   .display{font-family:'Fraunces',serif;}
 
   .topbar{
     background:linear-gradient(120deg, var(--teal-deep) 0%, var(--teal-dark) 55%, var(--teal) 130%);
-    color:#fff; padding:26px 40px 30px; position:relative; overflow:hidden;
+    color:#fff; padding:26px 40px 30px; position:fixed; top:0; left:0; right:0; z-index:60; overflow:hidden;
   }
+  /* Espaço reservado pro topbar fixo não tampar o conteúdo (10/09/2026,
+     pedido do usuário "deixe esses dois estático"). --topbar-h calculado ao
+     vivo via ResizeObserver (JS) porque a altura do topbar varia (texto
+     "Última atualização" muda, quebra de linha em telas estreitas). */
+  body{padding-top:var(--topbar-h, 100px);}
   .topbar::after{content:""; position:absolute; right:-60px; top:-90px; width:280px; height:280px; border-radius:50%; border:1px solid rgba(255,255,255,0.14);}
   .brand{display:flex; align-items:center; gap:14px; position:relative; z-index:2;}
   .brand .name{font-family:'Fraunces',serif; font-weight:600; font-size:19px; line-height:1.15;}
@@ -38,20 +49,24 @@
      sistema") - a nav que antes era uma barra horizontal (.tabs/.tab-btn)
      virou uma coluna fixa à esquerda. Os IDs/classes (#tabs, .tab-btn,
      .active) continuam os mesmos de propósito - só CSS + wrapper HTML novo,
-     JS de troca de aba não mudou nada. */
-  .app-shell{display:flex; align-items:flex-start;}
-  .main-content{flex:1; min-width:0;}
+     JS de troca de aba não mudou nada.
+     10/09/2026 (2a mudança no mesmo dia): topbar E sidebar viraram
+     position:fixed de verdade (pedido "deixe esses dois estático, quando eu
+     mexer o resto eles continuam no lugar") - testado com Puppeteer que
+     position:sticky + display:flex nessa combinação específica (sidebar
+     fixa + tabela larga dentro do conteúdo) fazia o .main-content NÃO
+     encolher direito (bug de flexbox com flex-basis:0% + conteúdo largo
+     aninhado, min-width:0 sozinho não resolvia) - com position:fixed a
+     sidebar sai do fluxo normal e o conteúdo vira caixa de bloco comum
+     (margin-left fixo), sem essa pegadinha de flexbox. */
+  .app-shell{display:block;}
+  .main-content{margin-left:264px; max-width:100%; overflow-x:hidden;}
   .sidebar-divider{height:1px; background:rgba(255,255,255,0.15); margin:4px 10px 9px;}
-  @media (max-width:860px){
-    .app-shell{flex-direction:column;}
-    .tabs{flex-direction:row; width:auto; overflow-x:auto; margin:20px 20px 0; position:static;}
-    .sidebar-divider{display:none;}
-  }
   .wrap{max-width:1200px; margin:0; padding:32px 40px 80px;}
   .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; margin-bottom:18px;}
   .form-field{display:flex; flex-direction:column; gap:5px;}
   .form-field label{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
-  .form-field input[type=text], .form-field input[type=date], .form-field textarea{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box;}
+  .form-field input[type=text], .form-field input[type=date], .form-field textarea, .form-field select{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box; min-width:0;}
   .form-field textarea{resize:vertical; min-height:60px; font-family:'Inter',sans-serif;}
   .file-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px; background:var(--paper); border-radius:8px; border:1px dashed var(--line);}
   .file-row .file-name{font-size:12.5px; color:var(--slate-2); flex:1; min-width:120px;}
@@ -62,6 +77,8 @@
   .btn-primary:hover{background:var(--teal-dark);}
   .btn-primary:disabled{opacity:0.6; cursor:default;}
   .contrato-lista-item{display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer;}
+  .rank-list-header{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--stone); padding:12px 0 4px; font-weight:700;}
+  .rank-list-header:first-child{padding-top:0;}
   h2{font-family:'Fraunces',serif; font-weight:600; font-size:19px; margin:0 0 4px; color:var(--teal-deep);}
   .note{color:var(--stone); font-size:12.5px; margin:0 0 16px; line-height:1.5;}
   .filtros{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
@@ -84,7 +101,7 @@
   table.fluxo-table td.fluxo-total, table.fluxo-table th.fluxo-total{font-weight:700; background:var(--panel); width:100px; font-size:10px;}
   table.fluxo-table tr.fluxo-total-row td{font-weight:700; background:#FBF4D9; border-top:2px solid var(--line);}
   table.fluxo-table tr.fluxo-total-row td:first-child{background:#FBF4D9;}
-  .fluxo-quinzena{background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03);}
+  .fluxo-quinzena{background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03); overflow-x:auto; max-width:100%;}
   .fluxo-scroll{overflow-x:auto; background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03);}
   .fluxo-recebido{color:var(--teal-deep); font-weight:600;}
   .fluxo-a-receber{color:var(--amber); font-weight:600;}
@@ -99,7 +116,7 @@
      sistema"). .tab-btn continua compartilhado com o botão "Sair" do topbar
      (por isso o layout de coluna/largura 100% fica em ".tabs .tab-btn", não
      em ".tab-btn" puro - senão o botão Sair também esticava). */
-  .tabs{display:flex; flex-direction:column; gap:3px; background:var(--teal-deep); border-radius:12px; padding:10px; width:224px; flex-shrink:0; margin:32px 0 32px 40px; position:sticky; top:20px;}
+  .tabs{display:flex; flex-direction:column; gap:3px; background:var(--teal-deep); border-radius:12px; padding:10px; width:224px; position:fixed; top:calc(var(--topbar-h, 100px) + 20px); left:40px; z-index:40; max-height:calc(100vh - var(--topbar-h, 100px) - 40px); overflow-y:auto;}
   .tab-btn{padding:9px 16px; border-radius:8px; border:none; background:transparent; color:rgba(255,255,255,0.72); font-family:'Inter',sans-serif; font-weight:600; font-size:13px; cursor:pointer;}
   .tabs .tab-btn{width:100%; text-align:left; display:flex; align-items:center; justify-content:space-between; gap:8px;}
   .tab-btn.contratos-btn{margin-bottom:8px;}
@@ -107,8 +124,25 @@
   .tab-btn.active{background:#fff; color:var(--teal-deep);}
   .tab-btn .n{font-family:'IBM Plex Mono',monospace; font-size:10.5px; background:rgba(255,255,255,0.16); padding:1px 6px; border-radius:20px;}
   .tab-btn.active .n{background:var(--teal-soft); color:var(--teal-deep);}
+  /* Breakpoints responsivos - precisam vir DEPOIS das regras base (.tabs,
+     .main-content etc.) no arquivo, senão a regra base ganha da media query
+     mesmo quando a largura bate (mesma especificidade -> quem vem depois no
+     arquivo vence, media query não tem prioridade especial). Achado real
+     10/09/2026 testando com Puppeteer: a sidebar fixa ficava flutuando por
+     cima do conteúdo em telas estreitas em vez de virar barra horizontal. */
+  @media (max-width:860px){
+    .main-content{margin-left:0;}
+    .tabs{flex-direction:row; width:auto; overflow-x:auto; position:static; max-height:none; margin:20px 20px 0;}
+    .sidebar-divider{display:none;}
+  }
+  @media (max-width:900px){
+    .grid-2, .grid-3, .kpi-grid, .form-grid{grid-template-columns:1fr !important;}
+  }
+  @media (max-width:640px){
+    .wrap{padding-left:16px; padding-right:16px;}
+  }
   .grid-3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:20px;}
-  .cat-card{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px; position:relative; overflow:hidden;}
+  .cat-card{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px; position:relative; overflow:hidden; min-width:0;}
   .cat-card .bar-top{position:absolute; top:0; left:0; right:0; height:4px;}
   .cat-card .qtd{font-family:'Fraunces',serif; font-weight:600; font-size:24px; color:var(--slate);}
   .cat-card .cat-name{font-size:12.5px; font-weight:600; color:var(--slate-2); margin-top:4px;}
@@ -124,14 +158,14 @@
   .tag.diff{background:var(--teal-soft); color:var(--teal-deep);}
   .kpi-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:24px;}
   .kpi-grid.cols-4{grid-template-columns:repeat(4,1fr);}
-  .kpi{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px; cursor:pointer;}
+  .kpi{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px; cursor:pointer; min-width:0;}
   .kpi.selected{border-color:var(--teal); box-shadow:0 0 0 2px var(--teal-soft) inset;}
   .kpi label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone); margin-bottom:6px;}
   .kpi .value{font-family:'Fraunces',serif; font-weight:600; font-size:22px; color:var(--teal-deep);}
   .kpi .foot{font-size:11px; color:var(--stone); margin-top:6px;}
   .kpi.alert .value{color:var(--amber);}
   .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;}
-  .card{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:18px;}
+  .card{background:var(--white); border:1px solid var(--line); border-radius:12px; padding:18px; min-width:0;}
   .card h3{margin:0 0 2px; font-family:'Fraunces',serif; font-size:15px; color:var(--slate);}
   .card .sub{font-size:11.5px; color:var(--stone); margin-bottom:12px;}
   .rank-list{list-style:none; margin:0; padding:0;}
@@ -443,6 +477,17 @@ const SUPABASE_KEY = "sb_publishable_Gj4D217YeW_puPB9ynf16g_shx1Oo9n";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let IDENTITY = null, SENHA = null;
+
+// Topbar e sidebar fixos ao rolar a tela (10/09/2026, pedido do usuário) -
+// ambos usam position:sticky; a altura do topbar varia (texto "Última
+// atualização" muda, quebra de linha em telas estreitas), então a sidebar
+// usa --topbar-h calculado ao vivo em vez de um valor fixo no CSS.
+new ResizeObserver(entries => {
+  // contentRect exclui padding (ficava 56px menor que a altura real - achado
+  // real testando com Puppeteer) - offsetHeight pega a caixa inteira certa.
+  const h = entries[0].target.offsetHeight;
+  document.documentElement.style.setProperty('--topbar-h', h + 'px');
+}).observe(document.querySelector('.topbar'));
 
 async function getPublicIp(){
   try{
@@ -1844,17 +1889,32 @@ async function carregarContratos(forcar){
   renderContratoLista();
 }
 
+// Ordem pedida pelo usuário (10/09/2026): convênios primeiro, depois
+// sindicatos, depois empresas particulares - alfabética dentro de cada
+// grupo. Categoria nova sem classificar (convênio recém-criado, por
+// exemplo) cai num grupo "Sem categoria" no fim, nunca some da lista.
+const CATEGORIA_ORDEM = ['Convênio', 'Sindicato', 'Empresa Particular'];
 function renderContratoLista(){
   const q = (document.getElementById('contratoSearch').value || '').toLowerCase();
-  const list = CONTRATOS.filter(c => !q || c.convenio.toLowerCase().includes(q)).sort((a,b)=>a.convenio.localeCompare(b.convenio,'pt-BR'));
-  document.getElementById('contratoLista').innerHTML = list.map(c => `
-    <li class="rank-item${c.id===CONTRATO_SELECIONADO_ID?' selected':''}" onclick="selecionarConvenio(${c.id})">
-      <div class="contrato-lista-item">
-        <span class="rl-nome">${escAttr(c.convenio)}</span>
-        ${c.contrato_arquivo_nome ? '<span class="tag diff">contrato ok</span>' : '<span class="tag invest">sem contrato</span>'}
-      </div>
-    </li>
-  `).join('') || '<li class="note" style="padding:8px 0;">Nenhum convênio encontrado.</li>';
+  const filtrados = CONTRATOS.filter(c => !q || c.convenio.toLowerCase().includes(q));
+  const grupos = {};
+  filtrados.forEach(c => { const cat = c.categoria || 'Sem categoria'; (grupos[cat] ||= []).push(c); });
+  Object.values(grupos).forEach(arr => arr.sort((a,b)=>a.convenio.localeCompare(b.convenio,'pt-BR')));
+  const ordem = [...CATEGORIA_ORDEM, ...Object.keys(grupos).filter(k => !CATEGORIA_ORDEM.includes(k)).sort()];
+
+  const html = ordem.filter(cat => grupos[cat] && grupos[cat].length).map(cat => `
+    <li class="rank-list-header">${escAttr(cat)}</li>
+    ${grupos[cat].map(c => `
+      <li class="rank-item${c.id===CONTRATO_SELECIONADO_ID?' selected':''}" onclick="selecionarConvenio(${c.id})">
+        <div class="contrato-lista-item">
+          <span class="rl-nome">${escAttr(c.convenio)}</span>
+          ${c.contrato_arquivo_nome ? '<span class="tag diff">contrato ok</span>' : '<span class="tag invest">sem contrato</span>'}
+        </div>
+      </li>
+    `).join('')}
+  `).join('');
+
+  document.getElementById('contratoLista').innerHTML = html || '<li class="note" style="padding:8px 0;">Nenhum convênio encontrado.</li>';
 }
 
 function selecionarConvenio(id){
@@ -1893,6 +1953,13 @@ function renderContratoDetalhe(c){
 
     <div class="form-grid">
       <div class="form-field"><label>Convênio</label><input type="text" id="cf_convenio" value="${escAttr(c && c.convenio)}"></div>
+      <div class="form-field"><label>Categoria</label>
+        <select id="cf_categoria">
+          <option value="Convênio"${(!c || c.categoria==='Convênio')?' selected':''}>Convênio</option>
+          <option value="Sindicato"${c && c.categoria==='Sindicato'?' selected':''}>Sindicato</option>
+          <option value="Empresa Particular"${c && c.categoria==='Empresa Particular'?' selected':''}>Empresa Particular</option>
+        </select>
+      </div>
       <div class="form-field"><label>Responsável</label><input type="text" id="cf_responsavel" value="${escAttr(c && c.responsavel)}"></div>
       <div class="form-field"><label>CNPJ p/ emitir NF</label><input type="text" id="cf_cnpjNf" value="${escAttr(c && c.cnpj_emitir_nf)}"></div>
       <div class="form-field"><label>CNPJ do convênio</label><input type="text" id="cf_cnpjConv" value="${escAttr(c && c.cnpj_convenio)}"></div>
@@ -2063,6 +2130,7 @@ async function salvarContrato(id){
     p_observacoes: get('cf_observacoes') || null,
     p_contrato_arquivo_nome: arquivo.nome,
     p_contrato_arquivo_base64: arquivo.base64,
+    p_categoria: document.getElementById('cf_categoria').value,
   });
   btn.disabled = false; btn.textContent = 'Salvar convênio';
   if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
