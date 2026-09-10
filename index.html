@@ -130,18 +130,25 @@
   </div>
 </div>
 <div class="wrap">
-  <div id="loginGate" class="status">
-    <form id="loginForm" onsubmit="return false;" style="display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;">
-      <select id="loginIdentity" required>
-        <option value="" disabled selected>Selecione…</option>
-        <option value="Andreia">Andreia</option>
-        <option value="Artur">Artur</option>
-        <option value="Carolline">Carolline</option>
-      </select>
-      <input type="password" id="loginPassword" placeholder="Senha" autocomplete="current-password">
-      <button type="submit">Entrar</button>
-      <span id="loginErro" style="color:#c0392b; font-size:12.5px;"></span>
-    </form>
+  <div id="loginGate" style="display:flex; justify-content:center; padding-top:48px;">
+    <div class="card" style="width:100%; max-width:320px;">
+      <h2 style="text-align:center; margin-bottom:16px;">Entrar</h2>
+      <form id="loginForm" onsubmit="return false;" style="display:flex; flex-direction:column; gap:14px;">
+        <label style="font-size:12.5px; font-weight:600; color:var(--slate-2);">Login
+          <select id="loginIdentity" required style="width:100%; margin-top:5px; box-sizing:border-box;">
+            <option value="" disabled selected>Selecione…</option>
+            <option value="Andreia">Andreia</option>
+            <option value="Artur">Artur</option>
+            <option value="Carolline">Carolline</option>
+          </select>
+        </label>
+        <label style="font-size:12.5px; font-weight:600; color:var(--slate-2);">Senha
+          <input type="password" id="loginPassword" placeholder="Senha" autocomplete="current-password" style="width:100%; margin-top:5px; padding:9px 14px; border-radius:8px; border:1px solid var(--line); font-size:13px; font-family:'Inter',sans-serif; color:var(--slate); box-sizing:border-box;">
+        </label>
+        <button type="submit" class="month-btn active" style="width:100%; padding:10px; border-radius:8px; font-size:13.5px;">Entrar</button>
+        <span id="loginErro" style="color:#c0392b; font-size:12.5px; text-align:center;"></span>
+      </form>
+    </div>
   </div>
   <div id="statusCarregamento" class="status" style="display:none;">Carregando dados…</div>
 
