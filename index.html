@@ -423,6 +423,20 @@
   </div>
 </div>
 
+<div id="pdfViewerModal" style="display:none; position:fixed; inset:0; background:rgba(20,30,29,0.65); z-index:1000; padding:24px;" onclick="if(event.target===this) fecharVisualizador()">
+  <div style="background:#fff; border-radius:14px; height:100%; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid var(--line);">
+      <strong id="pdfViewerTitle" style="font-family:'Inter',sans-serif; font-size:13.5px; color:var(--slate);"></strong>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span class="note" style="margin:0; font-size:11.5px;">Ctrl+F pra buscar palavra/código dentro do arquivo</span>
+        <button type="button" class="btn-mini" id="pdfViewerDownloadBtn">Baixar</button>
+        <button type="button" class="btn-mini" onclick="fecharVisualizador()">Fechar ✕</button>
+      </div>
+    </div>
+    <iframe id="pdfViewerFrame" style="flex:1; border:none; width:100%;" title="Visualizador de arquivo"></iframe>
+  </div>
+</div>
+
 <script>
 const SUPABASE_URL = "https://ylalexswpruqfvinkhdl.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Gj4D217YeW_puPB9ynf16g_shx1Oo9n";
@@ -1861,7 +1875,7 @@ function renderAditivosList(convenioId){
   return list.map(a => `
     <div class="file-row">
       <span class="file-name">${a.data_aditivo ? new Date(a.data_aditivo+'T00:00:00').toLocaleDateString('pt-BR') : '(sem data)'}${a.descricao ? (' — '+escAttr(a.descricao)) : ''}</span>
-      ${a.arquivo_nome ? `<button type="button" class="btn-mini" onclick="baixarAditivoArquivo(${a.id})">Baixar (${escAttr(a.arquivo_nome)})</button>` : '<span class="note" style="margin:0;">sem arquivo</span>'}
+      ${a.arquivo_nome ? `<button type="button" class="btn-mini" onclick="visualizarAditivoArquivo(${a.id})">Visualizar (${escAttr(a.arquivo_nome)})</button><button type="button" class="btn-mini" onclick="baixarAditivoArquivo(${a.id})">Baixar</button>` : '<span class="note" style="margin:0;">sem arquivo</span>'}
       <button type="button" class="btn-mini danger" onclick="excluirAditivo(${a.id})">Excluir</button>
     </div>
   `).join('');
@@ -1896,7 +1910,7 @@ function renderContratoDetalhe(c){
     <h3 style="font-size:14px;">Contrato</h3>
     <div class="file-row" style="margin-bottom:18px;">
       <span class="file-name">${c && c.contrato_arquivo_nome ? escAttr(c.contrato_arquivo_nome) : 'Nenhum arquivo anexado'}</span>
-      ${c && c.contrato_arquivo_nome ? `<button type="button" class="btn-mini" onclick="baixarContratoArquivo(${c.id})">Baixar</button>` : ''}
+      ${c && c.contrato_arquivo_nome ? `<button type="button" class="btn-mini" onclick="visualizarContratoArquivo(${c.id})">Visualizar</button><button type="button" class="btn-mini" onclick="baixarContratoArquivo(${c.id})">Baixar</button>` : ''}
       <input type="file" id="cf_arquivo" accept="application/pdf,image/*" style="max-width:220px;">
     </div>
 
@@ -1936,28 +1950,90 @@ async function arquivoParaEnvio(inputId){
   return { base64: await fileToBase64(file), nome: file.name };
 }
 
-function baixarBase64(nome, base64){
+function mimeDoNome(nome){
+  const ext = String(nome||'').split('.').pop().toLowerCase();
+  if(ext==='pdf') return 'application/pdf';
+  if(ext==='jpg' || ext==='jpeg') return 'image/jpeg';
+  if(ext==='png') return 'image/png';
+  if(ext==='gif') return 'image/gif';
+  return 'application/pdf';
+}
+
+function base64ParaBlob(base64, mime){
   const byteChars = atob(base64);
   const bytes = new Uint8Array(byteChars.length);
   for(let i=0;i<byteChars.length;i++) bytes[i] = byteChars.charCodeAt(i);
-  const blob = new Blob([bytes]);
-  const url = URL.createObjectURL(blob);
+  return new Blob([bytes], { type: mime });
+}
+
+function baixarBase64(nome, base64){
+  const url = URL.createObjectURL(base64ParaBlob(base64, mimeDoNome(nome)));
   const a = document.createElement('a');
   a.href = url; a.download = nome || 'arquivo';
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
-async function baixarContratoArquivo(id){
+// Visualizador inline (10/09/2026, pedido do usuário: "abrir na tela mesmo
+// sem download e permitir consulta tipo ctrl+f"). Usa o próprio leitor de
+// PDF do navegador dentro de um iframe com uma Blob URL - Chrome/Edge têm
+// busca de texto embutida (Ctrl+F com o iframe focado abre a busca DO leitor
+// de PDF, não a da página), então não precisa de nenhuma lib de PDF nova.
+function abrirVisualizador(nome, base64){
+  const mime = mimeDoNome(nome);
+  const url = URL.createObjectURL(base64ParaBlob(base64, mime));
+  const modal = document.getElementById('pdfViewerModal');
+  document.getElementById('pdfViewerTitle').textContent = nome || 'Arquivo';
+  document.getElementById('pdfViewerFrame').src = url;
+  document.getElementById('pdfViewerDownloadBtn').onclick = () => baixarBase64(nome, base64);
+  modal.dataset.blobUrl = url;
+  modal.style.display = 'flex';
+}
+
+function fecharVisualizador(){
+  const modal = document.getElementById('pdfViewerModal');
+  modal.style.display = 'none';
+  document.getElementById('pdfViewerFrame').src = 'about:blank';
+  if(modal.dataset.blobUrl){ URL.revokeObjectURL(modal.dataset.blobUrl); delete modal.dataset.blobUrl; }
+}
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && document.getElementById('pdfViewerModal').style.display !== 'none') fecharVisualizador();
+});
+
+async function obterArquivoContrato(id){
   const { data, error } = await sb.rpc('get_contrato_arquivo', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
-  if(error || !data || !data[0]){ alert('Não foi possível baixar o arquivo.'); console.error(error); return; }
-  baixarBase64(data[0].arquivo_nome, data[0].arquivo_base64);
+  if(error || !data || !data[0]){ console.error(error); return null; }
+  return data[0];
+}
+
+async function obterArquivoAditivo(id){
+  const { data, error } = await sb.rpc('get_aditivo_arquivo', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
+  if(error || !data || !data[0]){ console.error(error); return null; }
+  return data[0];
+}
+
+async function visualizarContratoArquivo(id){
+  const r = await obterArquivoContrato(id);
+  if(!r){ alert('Não foi possível abrir o arquivo.'); return; }
+  abrirVisualizador(r.arquivo_nome, r.arquivo_base64);
+}
+
+async function baixarContratoArquivo(id){
+  const r = await obterArquivoContrato(id);
+  if(!r){ alert('Não foi possível baixar o arquivo.'); return; }
+  baixarBase64(r.arquivo_nome, r.arquivo_base64);
+}
+
+async function visualizarAditivoArquivo(id){
+  const r = await obterArquivoAditivo(id);
+  if(!r){ alert('Não foi possível abrir o arquivo.'); return; }
+  abrirVisualizador(r.arquivo_nome, r.arquivo_base64);
 }
 
 async function baixarAditivoArquivo(id){
-  const { data, error } = await sb.rpc('get_aditivo_arquivo', { p_identity: IDENTITY, p_password: SENHA, p_id: id });
-  if(error || !data || !data[0]){ alert('Não foi possível baixar o arquivo.'); console.error(error); return; }
-  baixarBase64(data[0].arquivo_nome, data[0].arquivo_base64);
+  const r = await obterArquivoAditivo(id);
+  if(!r){ alert('Não foi possível baixar o arquivo.'); return; }
+  baixarBase64(r.arquivo_nome, r.arquivo_base64);
 }
 
 async function salvarContrato(id){
