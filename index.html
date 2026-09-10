@@ -69,6 +69,15 @@
   .form-field input[type=text], .form-field input[type=date], .form-field textarea, .form-field select{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box; min-width:0;}
   .form-field textarea{resize:vertical; min-height:60px; font-family:'Inter',sans-serif;}
   .file-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px; background:var(--paper); border-radius:8px; border:1px dashed var(--line);}
+  /* Accordion (10/09/2026, pedido "deixe em formato lista quando clicar em
+     contrato abre os campos") - Dados do Convênio/Contrato/Aditivos viraram
+     3 seções clicáveis que expandem/recolhem, em vez de um formulário só
+     rolando pra baixo. */
+  .accordion-item{border:1px solid var(--line); border-radius:10px; margin-bottom:10px; overflow:hidden;}
+  .accordion-header{width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 16px; background:var(--paper); border:none; cursor:pointer; font-family:'Fraunces',serif; font-size:15px; font-weight:600; color:var(--slate); text-align:left;}
+  .accordion-header:hover{background:var(--panel);}
+  .accordion-caret{color:var(--stone); font-size:11px;}
+  .accordion-body{padding:16px; border-top:1px solid var(--line);}
   .file-row .file-name{font-size:12.5px; color:var(--slate-2); flex:1; min-width:120px;}
   .btn-mini{padding:6px 12px; border-radius:7px; border:1px solid var(--line); background:#fff; font-size:12px; font-family:'Inter',sans-serif; cursor:pointer; color:var(--slate-2); font-weight:600; white-space:nowrap;}
   .btn-mini:hover{background:var(--panel);}
@@ -1978,50 +1987,75 @@ function renderContratoDetalhe(c){
     </div>
     <div class="sub" style="margin-bottom:14px;">${c ? `Última edição: ${c.atualizado_em ? new Date(c.atualizado_em).toLocaleString('pt-BR') : '—'}${c.atualizado_por ? ' · '+escAttr(c.atualizado_por) : ''}` : 'Preencha os dados e salve pra criar.'}</div>
 
-    <div class="form-grid">
-      <div class="form-field"><label>Convênio</label><input type="text" id="cf_convenio" value="${escAttr(c && c.convenio)}"></div>
-      <div class="form-field"><label>Categoria</label>
-        <select id="cf_categoria">
-          <option value="Convênio"${(!c || c.categoria==='Convênio')?' selected':''}>Convênio</option>
-          <option value="Sindicato"${c && c.categoria==='Sindicato'?' selected':''}>Sindicato</option>
-          <option value="Empresa Particular"${c && c.categoria==='Empresa Particular'?' selected':''}>Empresa Particular</option>
-        </select>
+    <div class="accordion-item">
+      <button type="button" class="accordion-header" onclick="toggleAccordion('accDados')">
+        <span>Dados do Convênio</span><span class="accordion-caret">▾</span>
+      </button>
+      <div class="accordion-body" id="accDados">
+        <div class="form-grid">
+          <div class="form-field"><label>Convênio</label><input type="text" id="cf_convenio" value="${escAttr(c && c.convenio)}"></div>
+          <div class="form-field"><label>Categoria</label>
+            <select id="cf_categoria">
+              <option value="Convênio"${(!c || c.categoria==='Convênio')?' selected':''}>Convênio</option>
+              <option value="Sindicato"${c && c.categoria==='Sindicato'?' selected':''}>Sindicato</option>
+              <option value="Empresa Particular"${c && c.categoria==='Empresa Particular'?' selected':''}>Empresa Particular</option>
+            </select>
+          </div>
+          <div class="form-field"><label>Responsável</label><input type="text" id="cf_responsavel" value="${escAttr(c && c.responsavel)}"></div>
+          <div class="form-field"><label>CNPJ p/ emitir NF</label><input type="text" id="cf_cnpjNf" value="${escAttr(c && c.cnpj_emitir_nf)}"></div>
+          <div class="form-field"><label>CNPJ do convênio</label><input type="text" id="cf_cnpjConv" value="${escAttr(c && c.cnpj_convenio)}"></div>
+          <div class="form-field"><label>Conta recebedora — Consultas/Exames</label><input type="text" id="cf_contaConsultas" value="${escAttr(c && c.conta_consultas_exames)}"></div>
+          <div class="form-field"><label>Conta recebedora — Cirurgias</label><input type="text" id="cf_contaCirurgias" value="${escAttr(c && c.conta_cirurgias)}"></div>
+          <div class="form-field"><label>Data de assinatura do contrato</label><input type="date" id="cf_dataAssinatura" value="${(c && c.data_assinatura) || ''}"></div>
+          <div class="form-field"><label>Status da negociação</label><input type="text" id="cf_status" value="${escAttr(c && c.status_negociacao)}"></div>
+          <div class="form-field"><label>Quando solicitar o reajuste</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
+          <div class="form-field"><label>Quando o reajuste entra em vigor</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
+          <div class="form-field"><label>E-mail para negociação</label><input type="text" id="cf_email" value="${escAttr(c && c.email_negociacao)}"></div>
+          <div class="form-field"><label>Telefone</label><input type="text" id="cf_telefone" value="${escAttr(c && c.telefone)}"></div>
+        </div>
+        <div class="form-field"><label>Observações</label><textarea id="cf_observacoes">${escAttr(c && c.observacoes)}</textarea></div>
       </div>
-      <div class="form-field"><label>Responsável</label><input type="text" id="cf_responsavel" value="${escAttr(c && c.responsavel)}"></div>
-      <div class="form-field"><label>CNPJ p/ emitir NF</label><input type="text" id="cf_cnpjNf" value="${escAttr(c && c.cnpj_emitir_nf)}"></div>
-      <div class="form-field"><label>CNPJ do convênio</label><input type="text" id="cf_cnpjConv" value="${escAttr(c && c.cnpj_convenio)}"></div>
-      <div class="form-field"><label>Conta recebedora — Consultas/Exames</label><input type="text" id="cf_contaConsultas" value="${escAttr(c && c.conta_consultas_exames)}"></div>
-      <div class="form-field"><label>Conta recebedora — Cirurgias</label><input type="text" id="cf_contaCirurgias" value="${escAttr(c && c.conta_cirurgias)}"></div>
-      <div class="form-field"><label>Data de assinatura do contrato</label><input type="date" id="cf_dataAssinatura" value="${(c && c.data_assinatura) || ''}"></div>
-      <div class="form-field"><label>Status da negociação</label><input type="text" id="cf_status" value="${escAttr(c && c.status_negociacao)}"></div>
-      <div class="form-field"><label>Quando solicitar o reajuste</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
-      <div class="form-field"><label>Quando o reajuste entra em vigor</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
-      <div class="form-field"><label>E-mail para negociação</label><input type="text" id="cf_email" value="${escAttr(c && c.email_negociacao)}"></div>
-      <div class="form-field"><label>Telefone</label><input type="text" id="cf_telefone" value="${escAttr(c && c.telefone)}"></div>
-    </div>
-    <div class="form-field" style="margin-bottom:18px;"><label>Observações</label><textarea id="cf_observacoes">${escAttr(c && c.observacoes)}</textarea></div>
-
-    <h3 style="font-size:14px;">Contrato</h3>
-    <div class="file-row" style="margin-bottom:18px;">
-      <span class="file-name">${c && c.contrato_arquivo_nome ? escAttr(c.contrato_arquivo_nome) : 'Nenhum arquivo anexado'}</span>
-      ${c && c.contrato_arquivo_nome ? `<button type="button" class="btn-mini" onclick="visualizarContratoArquivo(${c.id})">Visualizar</button><button type="button" class="btn-mini" onclick="baixarContratoArquivo(${c.id})">Baixar</button>` : ''}
-      <input type="file" id="cf_arquivo" accept="application/pdf,image/*" style="max-width:220px;">
     </div>
 
-    <button type="button" class="btn-primary" id="cf_salvarBtn" onclick="salvarContrato(${c ? c.id : 'null'})">Salvar convênio</button>
+    <div class="accordion-item">
+      <button type="button" class="accordion-header" onclick="toggleAccordion('accContrato')">
+        <span>Contrato</span><span class="accordion-caret">▾</span>
+      </button>
+      <div class="accordion-body" id="accContrato" style="display:none;">
+        <div class="file-row">
+          <span class="file-name">${c && c.contrato_arquivo_nome ? escAttr(c.contrato_arquivo_nome) : 'Nenhum arquivo anexado'}</span>
+          ${c && c.contrato_arquivo_nome ? `<button type="button" class="btn-mini" onclick="visualizarContratoArquivo(${c.id})">Visualizar</button><button type="button" class="btn-mini" onclick="baixarContratoArquivo(${c.id})">Baixar</button>` : ''}
+          <input type="file" id="cf_arquivo" accept="application/pdf,image/*" style="max-width:220px;">
+        </div>
+      </div>
+    </div>
 
     ${c ? `
-    <h3 style="font-size:14px; margin-top:26px;">Aditivos</h3>
-    <p class="note">Cada aditivo fica registrado com data e arquivo próprios — o histórico não se perde quando vier um novo.</p>
-    <div id="aditivosList" style="margin-bottom:14px;">${renderAditivosList(c.id)}</div>
-    <div class="file-row" style="flex-wrap:wrap;">
-      <input type="date" id="ad_data" style="width:150px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px;">
-      <input type="text" id="ad_descricao" placeholder="Observação (opcional)" style="flex:1; min-width:140px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px;">
-      <input type="file" id="ad_arquivo" accept="application/pdf,image/*" style="max-width:200px;">
-      <button type="button" class="btn-mini" onclick="adicionarAditivo(${c.id})">+ Adicionar aditivo</button>
+    <div class="accordion-item">
+      <button type="button" class="accordion-header" onclick="toggleAccordion('accAditivos')">
+        <span>Aditivos</span><span class="accordion-caret">▾</span>
+      </button>
+      <div class="accordion-body" id="accAditivos" style="display:none;">
+        <p class="note">Cada aditivo fica registrado com data e arquivo próprios — o histórico não se perde quando vier um novo.</p>
+        <div id="aditivosList" style="margin-bottom:14px;">${renderAditivosList(c.id)}</div>
+        <div class="file-row" style="flex-wrap:wrap;">
+          <input type="date" id="ad_data" style="width:150px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px;">
+          <input type="text" id="ad_descricao" placeholder="Observação (opcional)" style="flex:1; min-width:140px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px;">
+          <input type="file" id="ad_arquivo" accept="application/pdf,image/*" style="max-width:200px;">
+          <button type="button" class="btn-mini" onclick="adicionarAditivo(${c.id})">+ Adicionar aditivo</button>
+        </div>
+      </div>
     </div>
     ` : ''}
+
+    <button type="button" class="btn-primary" id="cf_salvarBtn" style="margin-top:16px;" onclick="salvarContrato(${c ? c.id : 'null'})">Salvar convênio</button>
   `;
+}
+
+function toggleAccordion(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
 }
 
 function fileToBase64(file){
