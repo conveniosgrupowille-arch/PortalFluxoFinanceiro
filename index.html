@@ -159,6 +159,7 @@
     <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
     <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
     <button type="button" class="tab-btn" data-tab="cortesias">Cortesia/Retorno</button>
+    <button type="button" class="tab-btn" data-tab="auditoria">Auditoria de Log</button>
   </div>
 
   <div id="panel-fluxo" class="tab-panel">
@@ -315,7 +316,7 @@
   <div id="panel-cortesias" class="tab-panel" style="display:none;">
     <section class="section" id="secCortesias" style="margin-top:0; padding-top:0; border-top:none;">
       <h2>Cortesia/Retorno</h2>
-      <p class="note">Todo atendimento sem valor registrado (R$ 0,00). Quando o convênio cadastrado é um plano real, o valor cedido é estimado pelo histórico de preço da Bradesco Saúde (mesma referência que o Painel local usa). Quando o convênio está cadastrado como "Cortesia", não estimamos valor. Simplificações desta versão: sem comparação com relatório anterior (não sinaliza "novo"), sem classificação Cortesia/Retorno/Retorno Cirúrgico (essa distinção não sobrevive à atualização automática nem no Painel local) e sem ranking por médico solicitante (esse campo não tem fonte no SQL — sempre fica "Não informado", gap documentado na extração). Cerca de 28% dos atendimentos vêm sem convênio identificado na extração SQL (aparecem como "Convênio não identificado" abaixo) — gap na origem, não é erro de cálculo.</p>
+      <p class="note">Todo atendimento sem valor registrado (R$ 0,00). Quando o convênio cadastrado é um plano real, o valor cedido é estimado pelo histórico de preço da Bradesco Saúde (mesma referência que o Painel local usa). Quando o convênio está cadastrado como "Cortesia", não estimamos valor. Simplificações desta versão: sem comparação com relatório anterior (não sinaliza "novo"), sem classificação Cortesia/Retorno/Retorno Cirúrgico (essa distinção não sobrevive à atualização automática nem no Painel local). O médico exibido/pesquisável é o Médico Executante (Médico Solicitante não tem fonte no SQL — sempre fica vazio). Cerca de 28% dos atendimentos vêm sem convênio identificado na extração SQL (aparecem como "Convênio não identificado" abaixo) — gap na origem, não é erro de cálculo.</p>
       <div class="month-picker" id="cortesiaMesPicker" style="margin-bottom:14px;"></div>
       <div class="kpi-grid" id="kpiCortesias"></div>
 
@@ -339,7 +340,7 @@
         <div class="card">
           <div class="search-box">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            <input id="cortSearch" placeholder="Buscar paciente ou convênio…">
+            <input id="cortSearch" placeholder="Buscar paciente, médico ou convênio…">
           </div>
           <div class="sub" style="margin-top:8px;">Detalhe — outros convênios <span class="mono" id="cortCount"></span></div>
         </div>
@@ -347,7 +348,7 @@
       <div class="card">
         <div class="fluxo-scroll">
         <table>
-          <thead><tr><th>Paciente</th><th>Data</th><th>Convênio</th><th>Procedimento(s)</th><th style="text-align:right;">Valor estimado</th></tr></thead>
+          <thead><tr><th>Paciente</th><th>Data</th><th>Convênio</th><th>Médico</th><th>Procedimento(s)</th><th style="text-align:right;">Valor estimado</th></tr></thead>
           <tbody id="cortesiaBody"></tbody>
         </table>
         </div>
@@ -355,12 +356,17 @@
     </section>
   </div>
 
-  <div id="auditLogSection" style="display:none; margin-top:24px; padding-top:16px; border-top:1px solid var(--line);">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
-      <h2 style="font-size:15px; margin:0;">Log de auditoria</h2>
-      <button type="button" class="month-btn" id="auditLogToggleBtn" onclick="toggleAuditLog()">Ver log</button>
-    </div>
-    <div id="auditLogList" style="display:none;"></div>
+  <div id="panel-auditoria" class="tab-panel" style="display:none;">
+    <section class="section" id="secAuditoria" style="margin-top:0; padding-top:0; border-top:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <div>
+          <h2>Auditoria de log</h2>
+          <p class="note" style="margin-bottom:4px;">Quem entrou no portal, quando e de onde (IP/navegador).</p>
+        </div>
+        <button type="button" class="month-btn" id="auditLogRefreshBtn" onclick="carregarAuditLog(true)">Atualizar</button>
+      </div>
+      <div id="auditLogList"></div>
+    </section>
   </div>
 </div>
 
@@ -394,17 +400,9 @@ async function registrarAcesso(){
 }
 
 let auditLogLoaded = false;
-async function toggleAuditLog(){
+async function carregarAuditLog(forcar){
   const box = document.getElementById('auditLogList');
-  const btn = document.getElementById('auditLogToggleBtn');
-  if(box.style.display !== 'none'){
-    box.style.display = 'none';
-    btn.textContent = 'Ver log';
-    return;
-  }
-  box.style.display = 'block';
-  btn.textContent = 'Ocultar log';
-  if(auditLogLoaded) return;
+  if(auditLogLoaded && !forcar) return;
   box.innerHTML = '<p class="note">Carregando…</p>';
   try{
     const { data, error } = await sb.rpc('get_access_log', { p_identity: IDENTITY, p_password: SENHA, p_limit: 500 });
@@ -435,7 +433,6 @@ function fazerLogout(){
 async function iniciarAposLogin(){
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('logoutBtn').style.display = '';
-  document.getElementById('auditLogSection').style.display = '';
   document.getElementById('statusCarregamento').style.display = '';
   registrarAcesso();
   carregarTudo().catch(e => {
@@ -741,12 +738,13 @@ async function carregarTudo(){
 
 // ==================== TABS ====================
 function montarTabs(){
-  document.querySelectorAll('.tab-btn').forEach(btn => {
+  document.querySelectorAll('#tabs .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#tabs .tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
       document.getElementById('panel-' + btn.dataset.tab).style.display = '';
+      if(btn.dataset.tab === 'auditoria') carregarAuditLog(false);
     });
   });
 }
@@ -1678,9 +1676,11 @@ function processarCortesias(atendidosRows){
   // entrada "fantasma" sem nome.
   CORT_ITEMS = zeroRows.filter(r => r.num_ficha && r.data_atendimento).map(r => {
     const convenioRaw = (r.convenio||'').trim();
+    const medicoRaw = (r.medico_exec||'').trim();
     return {
       paciente: titleCase(r.paciente), data: r.data_atendimento,
       convenio: convenioRaw ? titleCase(convenioRaw) : '(Convênio não identificado)',
+      medico: medicoRaw ? titleCase(medicoRaw) : '(Médico não identificado)',
       procedimento: titleCase(r.procedimento||''), mes: mesLabelFromDate(parseDateISO(r.data_atendimento)),
       valorEstimado: Math.round(findBradPrice(normKeyDiv(r.procedimento))*100)/100,
       isCortesiaReal: stripAccents(convenioRaw).toUpperCase() === 'CORTESIA',
@@ -1732,16 +1732,17 @@ function renderCortesiasTab(){
 
 function renderCortesiaOutrosLista(){
   const q = (document.getElementById('cortSearch').value || '').toLowerCase();
-  const list = (window.__cortOutros||[]).filter(r => !q || r.paciente.toLowerCase().includes(q) || r.convenio.toLowerCase().includes(q)).sort((a,b)=>b.valorEstimado-a.valorEstimado);
+  const list = (window.__cortOutros||[]).filter(r => !q || r.paciente.toLowerCase().includes(q) || r.convenio.toLowerCase().includes(q) || r.medico.toLowerCase().includes(q)).sort((a,b)=>b.valorEstimado-a.valorEstimado);
   document.getElementById('cortCount').textContent = list.length + ' item(ns)';
   document.getElementById('cortesiaBody').innerHTML = list.map(d => `
     <tr>
       <td>${d.paciente}</td>
       <td class="mono">${d.data.split('-').reverse().join('/')}</td>
       <td>${d.convenio}</td>
+      <td>${d.medico}</td>
       <td>${d.procedimento}</td>
       <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtMoney(d.valorEstimado)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--stone); padding:20px;">Nenhum item neste período</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center; color:var(--stone); padding:20px;">Nenhum item neste período</td></tr>';
 }
 
 iniciarLogin();
