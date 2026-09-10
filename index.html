@@ -698,21 +698,27 @@ function cnpjConvenioLabel(nome){ return CNPJ_MAP[stripAccents(nome).toUpperCase
 // ~1000 vinham, Ago-Out/26 sumiam do Fluxograma) - pagina em blocos de 1000
 // ate' nao vir mais nada.
 async function fetchAll(tabela, colunas){
-  let tudo = [], from = 0;
+  let tudo = [], offset = 0;
   const PAGE = 1000;
   while (true) {
-    const { data, error } = await sb.rpc('get_' + tabela, { p_identity: IDENTITY, p_password: SENHA }).range(from, from + PAGE - 1);
+    // O header Range/.range() do PostgREST é IGNORADO em chamadas RPC nesse
+    // projeto (testado 10/09/2026: 3 requests com Range 0-999/1000-1999/
+    // 2000-2999 devolveram sempre "Content-Range: 0-999/32528" — nunca avança).
+    // Corrigido usando p_offset/p_limit como PARÂMETROS reais da função SQL
+    // (fix aplicado nas 14 funções get_* — aceita offset/limit e faz
+    // OFFSET/LIMIT na query). O Supabase ainda cora a resposta em ~1000 linhas
+    // por chamada mesmo pedindo mais no p_limit, por isso o loop continua
+    // necessário — mas agora o offset realmente avança (confirmado: páginas
+    // diferentes trazem linhas diferentes).
+    const { data, error } = await sb.rpc('get_' + tabela, { p_identity: IDENTITY, p_password: SENHA, p_offset: offset, p_limit: PAGE });
     if (error) { console.error('Erro em', tabela, error); break; }
     const recebidos = data || [];
     tudo = tudo.concat(recebidos);
-    // Não assumir que cada página vem cheia (1000) — se o Supabase aplicar um
-    // limite por requisição menor que PAGE, "recebidos.length < PAGE" seria
-    // verdadeiro na 1ª página mesmo havendo mais dados, cortando a paginação
-    // cedo demais (achado real 10/09/2026: só 786 de 28.567 contas carregavam
-    // depois que faturados_exames passou a ter Não Faturado, 32k+ linhas).
-    // Só para quando uma página vem literalmente vazia.
+    // Só para quando uma página vem literalmente vazia — não assumir que cada
+    // página vem cheia (achado real 10/09/2026: só 786 de 28.567 contas
+    // carregavam antes desse fix, porque a paginação parava cedo demais).
     if (recebidos.length === 0) break;
-    from += recebidos.length;
+    offset += recebidos.length;
   }
   return tudo;
 }
