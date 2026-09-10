@@ -66,6 +66,10 @@
   .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; margin-bottom:18px;}
   .form-field{display:flex; flex-direction:column; gap:5px;}
   .form-section-label{grid-column:1/-1; font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--teal-deep); font-weight:700; margin-top:4px; padding-top:12px; border-top:1px dashed var(--line);}
+  .resumo-renovacao{display:flex; flex-wrap:wrap; gap:16px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:16px;}
+  .resumo-item{display:flex; flex-direction:column; gap:3px; min-width:150px;}
+  .resumo-label{font-family:'IBM Plex Mono',monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
+  .resumo-valor{font-size:13px; color:var(--slate); font-weight:600;}
   .form-field label{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
   .form-field input[type=text], .form-field input[type=date], .form-field textarea, .form-field select{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box; min-width:0;}
   .form-field textarea{resize:vertical; min-height:60px; font-family:'Inter',sans-serif;}
@@ -1921,6 +1925,17 @@ let contratoSearchWired = false;
 // OK so' fecha "momentaneamente" (nao salva nada) - reaparece no proximo
 // login se a condicao continuar valendo.
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+// Próxima ocorrência de "até DD/MM/AAAA" pro mês informado (nome livre tipo
+// "Setembro") - se o mês já passou esse ano, usa o ano que vem.
+function proximaDataLimiteMes(mesNome){
+  if(!mesNome) return null;
+  const idx = MESES_PT.findIndex(m => stripAccents(m).toLowerCase() === stripAccents(mesNome).trim().toLowerCase());
+  if(idx === -1) return null;
+  const hoje = new Date();
+  let ano = hoje.getFullYear();
+  if(new Date(ano, idx+1, 0) < hoje) ano += 1;
+  return new Date(ano, idx+1, 0).toLocaleDateString('pt-BR');
+}
 function calcularAlertasRenovacao(contratos){
   const hoje = new Date();
   const mesAtual = stripAccents(MESES_PT[hoje.getMonth()]).toLowerCase();
@@ -2024,6 +2039,23 @@ function renderAditivosList(convenioId){
   `).join('');
 }
 
+// Resumo rápido de renovação (10/09/2026, pedido do usuário) - fica no
+// lugar onde "Última edição" ficava antes (que foi pra baixo, perto do
+// botão Salvar) - dá pra ver o ciclo de renovação sem abrir o accordion.
+function renderResumoRenovacao(c){
+  const mes = c.data_solicitar_reajuste;
+  const dataLimite = proximaDataLimiteMes(mes);
+  const itens = [
+    ['Mês de Renovação', mes ? escAttr(mes) + (dataLimite ? ` (até ${dataLimite})` : '') : '—'],
+    ['Início da Vigência nova Tabela', c.data_vigencia_reajuste ? escAttr(c.data_vigencia_reajuste) : '—'],
+    ['Status', c.status_negociacao ? escAttr(c.status_negociacao) : '—'],
+    ['Negociação iniciada em', c.data_inicio_negociacao ? new Date(c.data_inicio_negociacao+'T00:00:00').toLocaleDateString('pt-BR') : 'Ainda não iniciada'],
+  ];
+  return `<div class="resumo-renovacao">${itens.map(([label, valor]) => `
+    <div class="resumo-item"><span class="resumo-label">${label}</span><span class="resumo-valor">${valor}</span></div>
+  `).join('')}</div>`;
+}
+
 function renderContratoDetalhe(c){
   const card = document.getElementById('contratoDetalheCard');
   card.style.display = '';
@@ -2032,7 +2064,7 @@ function renderContratoDetalhe(c){
       <h3 style="margin:0;">${c ? escAttr(c.convenio) : 'Novo convênio'}</h3>
       ${c ? `<button type="button" class="btn-mini danger" onclick="excluirConvenio(${c.id})">Excluir convênio</button>` : ''}
     </div>
-    <div class="sub" style="margin-bottom:14px;">${c ? `Última edição: ${c.atualizado_em ? new Date(c.atualizado_em).toLocaleString('pt-BR') : '—'}${c.atualizado_por ? ' · '+escAttr(c.atualizado_por) : ''}` : 'Preencha os dados e salve pra criar.'}</div>
+    ${c ? renderResumoRenovacao(c) : '<p class="sub" style="margin-bottom:14px;">Preencha os dados e salve pra criar.</p>'}
 
     <div class="accordion-item">
       <button type="button" class="accordion-header" onclick="toggleAccordion('accDados')">
@@ -2098,6 +2130,7 @@ function renderContratoDetalhe(c){
     ` : ''}
 
     <button type="button" class="btn-primary" id="cf_salvarBtn" style="margin-top:16px;" onclick="salvarContrato(${c ? c.id : 'null'})">Salvar convênio</button>
+    ${c ? `<div class="sub" style="margin:10px 0 0;">Última edição: ${c.atualizado_em ? new Date(c.atualizado_em).toLocaleString('pt-BR') : '—'}${c.atualizado_por ? ' · '+escAttr(c.atualizado_por) : ''}</div>` : ''}
   `;
 }
 
