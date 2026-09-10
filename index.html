@@ -327,7 +327,7 @@
   <div id="panel-previsao" class="tab-panel" style="display:none;">
     <section class="section" id="secPrevisao" style="margin-top:0; padding-top:0; border-top:none;">
       <h2>Previsão</h2>
-      <p class="note">Por convênio, mês de atendimento (não de vencimento) — o que foi faturado naquele lote, quanto já foi recebido, quanto ainda não foi faturado. Só Exames por enquanto (Cirurgias entra depois).</p>
+      <p class="note">Por convênio, mês de atendimento (não de vencimento) — o que foi faturado naquele lote, quanto já foi recebido, quanto ainda não foi faturado. Só Exames por enquanto (Cirurgias entra depois). "Não faturado" vem de Repasse Médico (mesma fonte do relatório de repasse) e é valor BRUTO, sem desconto de imposto — as outras 3 colunas já são líquidas.</p>
       <div class="month-picker" id="previsaoMesPicker" style="margin-bottom:14px;"></div>
       <div class="kpi-grid cols-4" id="kpiPrevisao"></div>
       <div class="card">
@@ -1741,8 +1741,12 @@ function processarPrevisao(faturadosRows, repasseRows){
       const glosadoRows = faturadoTodasRows.filter(r => isGlosado(r));
       const faturadoAguardRows = faturadoTodasRows.filter(r => !isEfetivamenteRecebido(r, hojeISO) && !isGlosado(r));
 
+      // Sem desconto de imposto aqui (10/09/2026, decisão do usuário) - ainda
+      // não foi faturado de verdade, então não faz sentido estimar imposto
+      // de algo que pode mudar até a fatura sair; valor bruto mesmo,
+      // diferente de Faturado/Recebido/Glosado (que já são líquidos).
       const naoFaturadoInfo = isDireto ? { valor: 0, itens: 0 } : (naoFaturadoPorConvMes[mes + '|' + conv] || { valor: 0, itens: 0 });
-      const naoFaturadoValor = Math.round(naoFaturadoInfo.valor * (1 - impostoPctParaRow({convenio: conv})) * 100) / 100;
+      const naoFaturadoValor = Math.round(naoFaturadoInfo.valor * 100) / 100;
       const naoFaturadoItens = naoFaturadoInfo.itens;
 
       return {
