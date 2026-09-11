@@ -600,7 +600,10 @@ async function carregarAuditLog(forcar){
   }
 }
 
+const SESSAO_DURACAO_MS = 2 * 60 * 60 * 1000; // 2h (pedido 11/09/2026)
+
 function fazerLogout(){
+  localStorage.removeItem('portalFluxoSessao');
   location.reload();
 }
 
@@ -625,12 +628,29 @@ async function tentarLogin(identity, password){
 }
 
 async function iniciarLogin(){
-  // Pedido do usuário (10/09/2026): sempre pedir login, sem "lembrar" no
-  // navegador. Antes disso o Portal salvava identity+senha no localStorage
-  // e pulava a tela de login em quem já tinha entrado antes naquele
-  // aparelho - removido. Limpa qualquer sessão salva de antes dessa mudança.
+  // Pedido do usuário (10/09/2026): sempre pedir login, sem "lembrar"
+  // permanente no navegador - removido o localStorage antigo que nunca
+  // expirava (portalFluxoIdentity/portalFluxoSenha). Limpa esse resquício.
   localStorage.removeItem('portalFluxoIdentity');
   localStorage.removeItem('portalFluxoSenha');
+
+  // Sessão temporária de 2h (pedido 11/09/2026: "deixar salvo por umas 2
+  // horas... é ruim em cada teste ter que ficar carregando dados de novo").
+  // Diferente do que foi removido acima - essa EXPIRA sozinha (não fica
+  // logado pra sempre), guardada com timestamp e revalidada contra o banco
+  // (tentarLogin) antes de pular a tela de login, não só confiada às cegas.
+  try {
+    const raw = localStorage.getItem('portalFluxoSessao');
+    if (raw) {
+      const sessao = JSON.parse(raw);
+      if (sessao && sessao.expiraEm > Date.now()) {
+        const ok = await tentarLogin(sessao.identity, sessao.senha);
+        if (ok) { iniciarAposLogin(); return; }
+      }
+      localStorage.removeItem('portalFluxoSessao');
+    }
+  } catch(e) { localStorage.removeItem('portalFluxoSessao'); }
+
   document.getElementById('loginForm').addEventListener('submit', async ()=>{
     const identity = document.getElementById('loginIdentity').value;
     const password = document.getElementById('loginPassword').value;
@@ -639,6 +659,9 @@ async function iniciarLogin(){
     const ok = await tentarLogin(identity, password);
     if(ok){
       erroEl.textContent = '';
+      localStorage.setItem('portalFluxoSessao', JSON.stringify({
+        identity, senha: password, expiraEm: Date.now() + SESSAO_DURACAO_MS,
+      }));
       iniciarAposLogin();
     }else{
       erroEl.textContent = 'Senha incorreta.';
@@ -659,6 +682,17 @@ function normalizeConvenio(raw){
   return s;
 }
 function titleCase(s){ return String(s||'').toLowerCase().replace(/(^|\s|\/)([a-zà-ÿ])/g, (m,p1,p2)=>p1+p2.toUpperCase()); }
+// SC Saúde IOCW é dividida em 2 linhas internamente por num_fatura (pra não
+// somar 2 depósitos bancários diferentes que caem no mesmo dia - motivo
+// original do split, ver ROWS.push acima). O nome da fatura muda todo mês,
+// então NUNCA é mostrado na tela (pedido 11/09/2026: "aqui nao pode aparecer
+// o numero da fatura porque muda todo mês, eu so passei para ter uma
+// referencia do que buscar") - só serve de chave interna (agrupamento,
+// bancoConvenioLabel/cnpjConvenioLabel, chave de confirmação bancária).
+// Todo texto exibido pro usuário passa por aqui antes de ir pro DOM/Excel.
+function labelExibicaoConvenio(conv){
+  return String(conv||'').replace(/\s*·\s*Fatura\s+\S+\s*$/i, '');
+}
 function fmtMoney(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 // Sem "R$" - só pra tabela de quinzena (10/09/2026, ajuste de espaço - 15
 // colunas de dia não sobra espaço pro prefixo sem quebrar linha; contexto
@@ -901,8 +935,13 @@ async function carregarTudo(){
     // fatura IOCW vira uma linha própria no Fluxo em vez de somar tudo em
     // "SC Saúde" só. Cirurgias (entidade Hub) ficam de fora daqui, vão pro
     // "SC Saúde Hub" no bloco de cirurgias abaixo.
+    // Sem acento no literal (11/09/2026) - o resto do sistema trata convênio
+    // como texto sem acento (fonte SQL não acentua) e só titleCase() ajusta
+    // maiúsculas pra exibição; um literal acentuado aqui ("Saúde") virava uma
+    // string DIFERENTE da opção do filtro de convênio (que vem de BANCO_MAP,
+    // sempre sem acento) e o filtro nunca batia com essas linhas.
     if (stripAccents(conv).toUpperCase().trim() === 'SC SAUDE') {
-      conv = `SC Saúde IOCW · Fatura ${r.num_fatura || 'sem número'}`;
+      conv = `SC Saude IOCW · Fatura ${r.num_fatura || 'sem número'}`;
     }
     // LEVMED (10/09/2026, mesmo pedido) - a fonte usa "LEVMED SAUDE" tanto
     // em exames quanto em cirurgias (sem distinguir IOCW/HUB no texto,
@@ -923,7 +962,7 @@ async function carregarTudo(){
     if (!r.convenio || !r.data_vencimento) return;
     let conv = normalizeConvenio(r.convenio);
     if (stripAccents(conv).toUpperCase().trim() === 'SC SAUDE') {
-      conv = 'SC Saúde HUB';
+      conv = 'SC Saude HUB';
     }
     if (stripAccents(conv).toUpperCase().trim() === 'LEVMED SAUDE') {
       conv = 'Levmed HUB';
@@ -947,7 +986,7 @@ async function carregarTudo(){
       if (bancoLevmed) BANCO_MAP[chaveNorm(nome)] = bancoLevmed;
       if (cnpjLevmed) CNPJ_MAP[chaveNorm(nome)] = cnpjLevmed;
     });
-    new Set(ROWS.filter(r => r.convenio.startsWith('SC Saúde')).map(r => r.convenio)).forEach(nome => {
+    new Set(ROWS.filter(r => r.convenio.startsWith('SC Saude')).map(r => r.convenio)).forEach(nome => {
       if (bancoScSaude) BANCO_MAP[chaveNorm(nome)] = bancoScSaude;
       if (cnpjScSaude) CNPJ_MAP[chaveNorm(nome)] = cnpjScSaude;
     });
@@ -1147,7 +1186,7 @@ function linhasExcelQuinzena(porDia, diaIni, diaFim, mesNum){
   const linhas = [header];
   convenios.forEach(conv => {
     let totalLinha = 0;
-    const linha = [conv];
+    const linha = [labelExibicaoConvenio(conv)];
     dias.forEach(d => {
       const v = porDia[conv][d];
       const total = somaStatusVal(v);
@@ -1222,7 +1261,7 @@ function tabelaQuinzenaHtml(titulo, porDia, diaIni, diaFim, mesNum){
   const totalPorDia = {};
   conveniosDaQuinzena.forEach(conv => {
     const banco = bancoConvenioLabel(conv);
-    html += `<tr><td>${conv}${banco?` <span class="banco-tag">${banco}</span>`:''}</td>`;
+    html += `<tr><td>${labelExibicaoConvenio(conv)}${banco?` <span class="banco-tag">${banco}</span>`:''}</td>`;
     let totalLinha = {recebido:0, aReceber:0};
     dias.forEach(d => {
       const v = porDia[conv][d];
@@ -1335,7 +1374,11 @@ function montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo){
     const ordemMes = MES_ORDER.indexOf(mesNome);
     Object.entries(porDia).forEach(([conv, dias]) => {
       if (bancoAlvo && bancoConvenioLabel(conv) !== bancoAlvo) return;
-      if (convenioAlvo && conv !== convenioAlvo) return;
+      // convenioAlvo vem do filtro (rótulo "limpo", sem número de fatura -
+      // ver labelExibicaoConvenio) - compara pelo rótulo, não pela chave
+      // interna, senão selecionar "SC Saúde IOCW" nunca bateria com nenhuma
+      // das 2 linhas internas (que têm "· Fatura NNNN" na chave real).
+      if (convenioAlvo && labelExibicaoConvenio(conv) !== convenioAlvo) return;
       Object.entries(dias).forEach(([dia, v]) => {
         const chave = chaveConf(conv, mes, dia);
         const conf = CONFIRMACOES[chave];
@@ -1390,7 +1433,7 @@ function renderConfBanco(){
     const corLinha = pendenteBaixa ? 'background:#FDF0DD;' : (l.confirmado?'background:var(--teal-wash);':'');
     html += `<tr data-chave="${l.chave}" style="${corLinha}" ${pendenteBaixa?'title="Valor recebido preenchido pela gestora — falta marcar Baixado Clinic"':''}>` +
       `<td class="mono">${cnpj||'—'}</td>` +
-      `<td>${l.conv} <span class="banco-tag">${l.mes}</span></td>` +
+      `<td>${labelExibicaoConvenio(l.conv)} <span class="banco-tag">${l.mes}</span></td>` +
       `<td>${l.dataPrevistaStr}</td>` +
       `<td>${fmtMoney(l.valorPrevisto)}</td>` +
       `<td><input type="text" class="v-real" value="${l.valorReal}" placeholder="—"></td>` +
@@ -1469,7 +1512,7 @@ function exportarConfBancoExcel(){
   const linhas = montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo);
   const header = ['CNPJ', 'Convênio', 'Mês', 'Data prevista', 'Valor previsto', 'Valor real', 'Data real', 'Confirmado', 'Nº Fatura', 'Baixado Clinic'];
   const corpo = linhas.map(l => [
-    cnpjConvenioLabel(l.conv) || '', l.conv, l.mes, l.dataPrevistaStr, l.valorPrevisto,
+    cnpjConvenioLabel(l.conv) || '', labelExibicaoConvenio(l.conv), l.mes, l.dataPrevistaStr, l.valorPrevisto,
     l.valorReal || '', l.dataReal || '', l.confirmado ? 'Sim' : 'Não', l.numFatura || '', l.baixadoClinic ? 'Sim' : 'Não',
   ]);
   const wb = XLSX.utils.book_new();
@@ -1511,7 +1554,12 @@ function montarFiltroBanco(){
   const bancos = [...new Set(Object.values(BANCO_MAP))].sort((a,b)=>a.localeCompare(b));
   document.getElementById('filtroBanco').innerHTML = '<option value="">Selecione um banco…</option>' + bancos.map(b=>`<option value="${b}">${b}</option>`).join('');
   document.getElementById('filtroBanco').addEventListener('change', renderConfBanco);
-  const convenios = [...new Set(Object.keys(BANCO_MAP).map(titleCase))].sort((a,b)=>a.localeCompare(b));
+  // labelExibicaoConvenio depois do titleCase (11/09/2026) - tira o "· Fatura
+  // NNNN" das chaves internas de SC Saúde/Levmed antes de listar no filtro;
+  // o Set dedup de novo porque as 2 faturas da SC Saúde IOCW colapsam no
+  // mesmo rótulo "Sc Saude Iocw" (1 opção no filtro cobre as 2 linhas, ver
+  // comparação por labelExibicaoConvenio em montarLinhasConfBanco).
+  const convenios = [...new Set(Object.keys(BANCO_MAP).map(k => labelExibicaoConvenio(titleCase(k))))].sort((a,b)=>a.localeCompare(b));
   document.getElementById('filtroConvenio').innerHTML = '<option value="">Selecione um convênio…</option>' + convenios.map(c=>`<option value="${c}">${c}</option>`).join('');
   document.getElementById('filtroConvenio').addEventListener('change', renderConfBanco);
 }
