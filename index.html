@@ -715,9 +715,19 @@ function impostoPctParaRow(r){
   // pro Fluxo de Receitas) - sem isso essas linhas perdiam o imposto
   // específico de SC Saúde e caíam pro fallback genérico (achado testando
   // o split: valor batia sem NENHUM desconto de imposto).
+  // Corrigido 11/09/2026 - conferido contra 3 notas fiscais reais (NF 170
+  // Exames, 171 Consultas, 43 Cirurgias, todas competência 07/2026): o IRRF
+  // retido de verdade é 4,8% em CONSULTAS (262,08/5.460,00) mas só 1,2% em
+  // EXAMES (265,11/22.092,87) e CIRURGIAS (668,55/55.712,34) - não é 4,8%
+  // pra tudo como o código assumia (usuário reportou "o valor recebido
+  // esta diferente" comparando com o banco - a fatura de Exames vinha
+  // descontada quase 4x mais do que devia). `entidade` já diferencia
+  // Cirurgias (hub); dentro de Exames/Consultas (iocw), `procedimento` é
+  // confiável porque cada conta é 100% de um tipo só (confirmado: fatura
+  // de Consulta bate exato com 42 contas x R$130, nenhuma mistura).
   if (stripAccents(r.convenio||'').toUpperCase().startsWith('SC SAUDE')) {
-    const desc = String(r.desc||'').toUpperCase();
-    return desc.includes('CONSULTA') ? 0.012 : 0.048;
+    if (r.entidade === 'hub') return 0.012;
+    return String(r.procedimento||'').toUpperCase().includes('CONSULTA') ? 0.048 : 0.012;
   }
   // Levmed idem (10/09/2026) - "Levmed IOCW"/"Levmed HUB" não batem mais
   // com a chave exata "LEVMED SAUDE" de IMPOSTO_PCT_POR_CONVENIO.
@@ -955,7 +965,7 @@ async function carregarTudo(){
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valorFinal || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Exames|' + r.num_fatura] : null,
-      entidade: 'iocw',
+      entidade: 'iocw', procedimento: r.procedimento,
     });
   });
   cirurgias.forEach(r => {
