@@ -140,6 +140,24 @@
   .fluxo-total{background:var(--teal-soft); font-weight:700;}
   .banco-tag{font-size:10.5px; color:var(--stone); font-style:italic; margin-left:4px;}
   input[type=text]{width:90px; padding:4px 7px; border:1px solid var(--line); border-radius:6px; font-family:'Inter',sans-serif; font-size:12px;}
+  /* conf-banco-table: 9 colunas (CNPJ/Convênio/datas/valores/checkboxes)
+     estouravam a largura da tela e forçavam barra de rolagem horizontal
+     (pedido 11/09/2026: "ajuste tambem o tamanho dessa tela para ficar sem
+     barra de rolagem"). table-layout:fixed com % somando 100% garante que
+     nunca passa da largura do container, e os inputs viram width:100% da
+     própria célula em vez de largura fixa em px. */
+  table.conf-banco-table{table-layout:fixed; width:100%;}
+  table.conf-banco-table th, table.conf-banco-table td{padding:6px 6px; font-size:11.5px; overflow:hidden; text-overflow:ellipsis;}
+  table.conf-banco-table th:nth-child(1), table.conf-banco-table td:nth-child(1){width:10%;}
+  table.conf-banco-table th:nth-child(2), table.conf-banco-table td:nth-child(2){width:17%; white-space:normal;}
+  table.conf-banco-table th:nth-child(3), table.conf-banco-table td:nth-child(3){width:9%;}
+  table.conf-banco-table th:nth-child(4), table.conf-banco-table td:nth-child(4){width:9%;}
+  table.conf-banco-table th:nth-child(5), table.conf-banco-table td:nth-child(5){width:11%;}
+  table.conf-banco-table th:nth-child(6), table.conf-banco-table td:nth-child(6){width:11%;}
+  table.conf-banco-table th:nth-child(7), table.conf-banco-table td:nth-child(7){width:7%; text-align:center;}
+  table.conf-banco-table th:nth-child(8), table.conf-banco-table td:nth-child(8){width:13%;}
+  table.conf-banco-table th:nth-child(9), table.conf-banco-table td:nth-child(9){width:13%; text-align:center;}
+  table.conf-banco-table input[type=text]{width:100%; box-sizing:border-box; padding:3px 5px; font-size:11px;}
   input[type=checkbox]{width:16px; height:16px; cursor:pointer; accent-color:var(--teal-deep);}
   .section{margin-top:36px; padding-top:24px; border-top:1px solid var(--line);}
   .status{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--stone); margin-bottom:18px;}
@@ -229,7 +247,7 @@
   <nav class="tabs" id="tabs" style="display:none;">
     <button type="button" class="tab-btn contratos-btn" data-tab="contratos">Gestão de Contratos</button>
     <div class="sidebar-divider"></div>
-    <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas</button>
+    <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas <span class="n" id="tabFluxoPendCount" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
     <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
     <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
@@ -284,7 +302,7 @@
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
           <h2>Conferência por banco</h2>
-          <p class="note" style="margin-bottom:4px;">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato.</p>
+          <p class="note" style="margin-bottom:4px;">Escolha o banco e/ou convênio pra ver tudo (recebido e a receber), em ordem de data. Confirme o que já caiu no extrato. Linhas destacadas em <span style="background:#FDF0DD; padding:1px 5px; border-radius:4px;">amarelo</span> já têm valor recebido preenchido pela gestora e aguardam você marcar "Baixado Clinic".</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarConfBanco" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -658,9 +676,19 @@ const IMPOSTO_PCT_POR_CONVENIO = {
 function impostoPctConvenio(conv){ return IMPOSTO_PCT_POR_CONVENIO[conv] || 0; }
 function impostoPctParaRow(r){
   if (r.convenio === 'UNIMED') return UNIMED_IMPOSTO_PCT;
-  if (r.convenio === 'SC SAUDE') {
+  // startsWith em vez de === (10/09/2026) - SC Saúde agora também aparece
+  // como "SC Saúde IOCW · Fatura NNNN"/"SC Saúde HUB" (split por fatura
+  // pro Fluxo de Receitas) - sem isso essas linhas perdiam o imposto
+  // específico de SC Saúde e caíam pro fallback genérico (achado testando
+  // o split: valor batia sem NENHUM desconto de imposto).
+  if (stripAccents(r.convenio||'').toUpperCase().startsWith('SC SAUDE')) {
     const desc = String(r.desc||'').toUpperCase();
     return desc.includes('CONSULTA') ? 0.012 : 0.048;
+  }
+  // Levmed idem (10/09/2026) - "Levmed IOCW"/"Levmed HUB" não batem mais
+  // com a chave exata "LEVMED SAUDE" de IMPOSTO_PCT_POR_CONVENIO.
+  if (stripAccents(r.convenio||'').toUpperCase().startsWith('LEVMED')) {
+    return IMPOSTO_PCT_POR_CONVENIO['LEVMED SAUDE'] || 0;
   }
   return impostoPctConvenio(r.convenio);
 }
@@ -808,7 +836,7 @@ function aplicarDedupContaExames(rows){
 
 async function carregarTudo(){
   const status = document.getElementById('statusCarregamento');
-  status.textContent = 'Carregando dados do Supabase…';
+  status.textContent = 'Carregando dados…';
   carregarUltimaAtualizacao();
 
   const [
@@ -866,7 +894,25 @@ async function carregarTudo(){
   ROWS = [];
   examesRaw.forEach(r => {
     if (!r.convenio || !r.data_vencimento) return;
-    const conv = normalizeConvenio(r.convenio);
+    let conv = normalizeConvenio(r.convenio);
+    // SC Saúde (10/09/2026, pedido do usuário) - eles pagam em notas
+    // separadas por fatura (Consultas numa, Exames em outra) em vez de um
+    // depósito só somando tudo - pra bater na conciliação bancária, cada
+    // fatura IOCW vira uma linha própria no Fluxo em vez de somar tudo em
+    // "SC Saúde" só. Cirurgias (entidade Hub) ficam de fora daqui, vão pro
+    // "SC Saúde Hub" no bloco de cirurgias abaixo.
+    if (stripAccents(conv).toUpperCase().trim() === 'SC SAUDE') {
+      conv = `SC Saúde IOCW · Fatura ${r.num_fatura || 'sem número'}`;
+    }
+    // LEVMED (10/09/2026, mesmo pedido) - a fonte usa "LEVMED SAUDE" tanto
+    // em exames quanto em cirurgias (sem distinguir IOCW/HUB no texto,
+    // diferente da SC Saúde onde tem 2 faturas de exame separadas) - aqui
+    // exames+consultas SEMPRE vêm numa fatura só (confirmado pelo usuário:
+    // fatura 2432 = consulta/exames), então só precisa separar de cirurgias
+    // (fatura própria, ex: 505) - sem sub-split por fatura dentro de IOCW.
+    if (stripAccents(conv).toUpperCase().trim() === 'LEVMED SAUDE') {
+      conv = 'Levmed IOCW';
+    }
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valorFinal || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Exames|' + r.num_fatura] : null,
@@ -875,13 +921,37 @@ async function carregarTudo(){
   });
   cirurgias.forEach(r => {
     if (!r.convenio || !r.data_vencimento) return;
-    const conv = normalizeConvenio(r.convenio);
+    let conv = normalizeConvenio(r.convenio);
+    if (stripAccents(conv).toUpperCase().trim() === 'SC SAUDE') {
+      conv = 'SC Saúde HUB';
+    }
+    if (stripAccents(conv).toUpperCase().trim() === 'LEVMED SAUDE') {
+      conv = 'Levmed HUB';
+    }
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valor_conta || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Cirurgias|' + r.num_fatura] : null,
       entidade: 'hub',
     });
   });
+  // Copia o mesmo banco/CNPJ já cadastrados (SC SAUDE/LEVMED SAUDE) pras
+  // variantes novas (IOCW/HUB) - sem isso a etiqueta de banco embaixo do
+  // nome do convênio (ex: "Santander IOCW") sumia nessas linhas na tela.
+  {
+    const bancoScSaude = bancoConvenioLabel('SC SAUDE');
+    const cnpjScSaude = cnpjConvenioLabel('SC SAUDE');
+    const bancoLevmed = bancoConvenioLabel('LEVMED SAUDE');
+    const cnpjLevmed = cnpjConvenioLabel('LEVMED SAUDE');
+    const chaveNorm = nome => stripAccents(nome).toUpperCase().trim().replace(/\s+/g,' ');
+    new Set(ROWS.filter(r => r.convenio.startsWith('Levmed')).map(r => r.convenio)).forEach(nome => {
+      if (bancoLevmed) BANCO_MAP[chaveNorm(nome)] = bancoLevmed;
+      if (cnpjLevmed) CNPJ_MAP[chaveNorm(nome)] = cnpjLevmed;
+    });
+    new Set(ROWS.filter(r => r.convenio.startsWith('SC Saúde')).map(r => r.convenio)).forEach(nome => {
+      if (bancoScSaude) BANCO_MAP[chaveNorm(nome)] = bancoScSaude;
+      if (cnpjScSaude) CNPJ_MAP[chaveNorm(nome)] = cnpjScSaude;
+    });
+  }
 
   CORRECOES = {};
   correcoes.forEach(c => {
@@ -891,6 +961,7 @@ async function carregarTudo(){
 
   CONFIRMACOES = {};
   confirmacoes.forEach(c => { CONFIRMACOES[c.chave] = c; });
+  atualizarBadgePendenciasBaixa();
 
   const mesesSet = new Set();
   ROWS.forEach(r => { if (r.dataVencimento) mesesSet.add(mesLabelFromDate(parseDateISO(r.dataVencimento))); });
@@ -1236,6 +1307,25 @@ window.addEventListener('resize', () => {
 // ==================== CONFERENCIA POR BANCO ====================
 function chaveConf(conv, mes, dia){ return conv + '|' + mes + '|' + dia; }
 
+// Sinaliza na sidebar quando a gestora já preencheu "Valor real" de algum
+// lançamento mas o faturamento ainda não marcou "Baixado Clinic" (pedido
+// 11/09/2026: "tem como me sinalizar quando abrir que houve lançamentos
+// na parte de fluxo para eu confirmar a baixa"). Roda toda vez que
+// CONFIRMACOES é recarregado, então o número já aparece assim que a
+// pessoa loga, sem precisar entrar na aba.
+function atualizarBadgePendenciasBaixa(){
+  const badge = document.getElementById('tabFluxoPendCount');
+  if (!badge) return;
+  const pendentes = Object.values(CONFIRMACOES).filter(c => c.valor_real != null && c.valor_real !== '' && !c.baixado_clinic);
+  if (pendentes.length > 0) {
+    badge.textContent = pendentes.length;
+    badge.title = pendentes.length + ' lançamento(s) com valor recebido preenchido pela gestora, aguardando confirmação de baixa no Clinic';
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 function montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo){
   const linhas = [];
   MESES_DISPONIVEIS.forEach(mes => {
@@ -1269,7 +1359,12 @@ function montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo){
 }
 
 async function salvarConfirmacao(registro){
-  CONFIRMACOES[registro.chave] = registro;
+  CONFIRMACOES[registro.chave] = {
+    chave: registro.chave, confirmado: registro.confirmado, valor_previsto: registro.valorPrevisto,
+    valor_real: registro.valorReal, data_real: registro.dataRealISO,
+    num_fatura: registro.numFatura, baixado_clinic: registro.baixadoClinic,
+  };
+  atualizarBadgePendenciasBaixa();
   const { error } = await sb.rpc('upsert_confirmacao_banco', {
     p_identity: IDENTITY, p_password: SENHA,
     p_chave: registro.chave, p_confirmado: registro.confirmado, p_valor_previsto: registro.valorPrevisto,
@@ -1288,10 +1383,12 @@ function renderConfBanco(){
   const linhas = montarLinhasConfBanco(bancoAlvo, convenioAlvo, mesAlvo);
   if (!linhas.length) { container.innerHTML = '<p class="note">Nada com esse filtro.</p>'; return; }
 
-  let html = '<div class="fluxo-scroll"><table><thead><tr><th>CNPJ</th><th>Convênio</th><th>Data prevista</th><th>Valor previsto</th><th>Valor real</th><th>Data real</th><th>Confirmado</th><th>Nº Fatura</th><th>Baixado Clinic</th></tr></thead><tbody>';
+  let html = '<div class="fluxo-scroll"><table class="conf-banco-table"><thead><tr><th>CNPJ</th><th>Convênio</th><th>Data prevista</th><th>Valor previsto</th><th>Valor real</th><th>Data real</th><th>Confirmado</th><th>Nº Fatura</th><th>Baixado Clinic</th></tr></thead><tbody>';
   linhas.forEach(l => {
     const cnpj = cnpjConvenioLabel(l.conv);
-    html += `<tr data-chave="${l.chave}" style="${l.confirmado?'background:var(--teal-wash);':''}">` +
+    const pendenteBaixa = l.valorReal !== '' && !l.baixadoClinic;
+    const corLinha = pendenteBaixa ? 'background:#FDF0DD;' : (l.confirmado?'background:var(--teal-wash);':'');
+    html += `<tr data-chave="${l.chave}" style="${corLinha}" ${pendenteBaixa?'title="Valor recebido preenchido pela gestora — falta marcar Baixado Clinic"':''}>` +
       `<td class="mono">${cnpj||'—'}</td>` +
       `<td>${l.conv} <span class="banco-tag">${l.mes}</span></td>` +
       `<td>${l.dataPrevistaStr}</td>` +
