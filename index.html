@@ -66,10 +66,11 @@
   .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; margin-bottom:18px;}
   .form-field{display:flex; flex-direction:column; gap:5px;}
   .form-section-label{grid-column:1/-1; font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--teal-deep); font-weight:700; margin-top:4px; padding-top:12px; border-top:1px dashed var(--line);}
-  .resumo-renovacao{display:flex; flex-wrap:wrap; gap:16px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:16px;}
+  .resumo-renovacao{display:flex; flex-wrap:wrap; align-items:flex-end; gap:16px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:16px;}
   .resumo-item{display:flex; flex-direction:column; gap:3px; min-width:150px;}
   .resumo-label{font-family:'IBM Plex Mono',monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
   .resumo-valor{font-size:13px; color:var(--slate); font-weight:600;}
+  .resumo-input{font-size:13px; color:var(--slate); font-weight:600; font-family:'Inter',sans-serif; border:1px solid var(--line); border-radius:6px; padding:5px 8px; background:#fff; min-width:150px;}
   .form-field label{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--stone);}
   .form-field input[type=text], .form-field input[type=date], .form-field textarea, .form-field select{width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; color:var(--slate); box-sizing:border-box; min-width:0;}
   .form-field textarea{resize:vertical; min-height:60px; font-family:'Inter',sans-serif;}
@@ -2180,15 +2181,48 @@ function renderAditivosList(convenioId){
 function renderResumoRenovacao(c){
   const mes = c.data_solicitar_reajuste;
   const dataLimite = proximaDataLimiteMes(mes);
-  const itens = [
+  const itensFixos = [
     ['Mês de Renovação', mes ? escAttr(mes) + (dataLimite ? ` (até ${dataLimite})` : '') : '—'],
     ['Início da Vigência nova Tabela', c.data_vigencia_reajuste ? escAttr(c.data_vigencia_reajuste) : '—'],
-    ['Status', c.status_negociacao ? escAttr(c.status_negociacao) : '—'],
-    ['Negociação iniciada em', c.data_inicio_negociacao ? new Date(c.data_inicio_negociacao+'T00:00:00').toLocaleDateString('pt-BR') : 'Ainda não iniciada'],
   ];
-  return `<div class="resumo-renovacao">${itens.map(([label, valor]) => `
+  // Status/Data de início ficam EDITÁVEIS aqui (10/09/2026, pedido do
+  // usuário: "precisa deixar o status editável para eu colocar que iniciei
+  // a negociação") - único lugar que edita esses 2 campos agora (tirados
+  // do formulário "Dados do Convênio" pra não duplicar edição da mesma
+  // coisa em dois lugares desencontrados).
+  return `<div class="resumo-renovacao">${itensFixos.map(([label, valor]) => `
     <div class="resumo-item"><span class="resumo-label">${label}</span><span class="resumo-valor">${valor}</span></div>
-  `).join('')}</div>`;
+  `).join('')}
+    <div class="resumo-item">
+      <span class="resumo-label">Status</span>
+      <input type="text" id="resStatus" class="resumo-input" placeholder="ex: Iniciada" value="${escAttr(c.status_negociacao)}">
+    </div>
+    <div class="resumo-item">
+      <span class="resumo-label">Negociação iniciada em</span>
+      <input type="date" id="resDataInicio" class="resumo-input" value="${c.data_inicio_negociacao || ''}">
+    </div>
+    <button type="button" class="btn-mini" style="align-self:flex-end;" onclick="salvarStatusNegociacao(${c.id})">Salvar</button>
+  </div>`;
+}
+
+async function salvarStatusNegociacao(id){
+  const c = CONTRATOS.find(x => x.id === id);
+  if(!c) return;
+  const status = document.getElementById('resStatus').value.trim() || null;
+  const dataInicio = document.getElementById('resDataInicio').value || null;
+  const { error } = await sb.rpc('upsert_convenio_contrato', {
+    p_identity: IDENTITY, p_password: SENHA, p_id: id,
+    p_cnpj_emitir_nf: c.cnpj_emitir_nf, p_cnpj_convenio: c.cnpj_convenio, p_convenio: c.convenio,
+    p_conta_consultas_exames: c.conta_consultas_exames, p_conta_cirurgias: c.conta_cirurgias,
+    p_data_assinatura: c.data_assinatura, p_data_solicitar_reajuste: c.data_solicitar_reajuste,
+    p_data_vigencia_reajuste: c.data_vigencia_reajuste, p_status_negociacao: status,
+    p_email_negociacao: c.email_negociacao, p_telefone: c.telefone, p_responsavel: c.responsavel,
+    p_observacoes: c.observacoes, p_contrato_arquivo_nome: null, p_contrato_arquivo_base64: null,
+    p_categoria: c.categoria, p_data_inicio_negociacao: dataInicio,
+  });
+  if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
+  await carregarContratos(true);
+  selecionarConvenio(id);
 }
 
 function renderContratoDetalhe(c){
@@ -2224,8 +2258,6 @@ function renderContratoDetalhe(c){
           <div class="form-section-label">Renovação Contratual</div>
           <div class="form-field"><label>Data para solicitar renovação</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
           <div class="form-field"><label>Data Base que entra em vigor a tabela nova</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
-          <div class="form-field"><label>Data de início das negociações</label><input type="date" id="cf_dataInicioNeg" value="${(c && c.data_inicio_negociacao) || ''}"></div>
-          <div class="form-field"><label>Status da negociação</label><input type="text" id="cf_status" value="${escAttr(c && c.status_negociacao)}"></div>
           <div class="form-field"><label>E-mail para negociação</label><input type="text" id="cf_email" value="${escAttr(c && c.email_negociacao)}"></div>
           <div class="form-field"><label>Telefone</label><input type="text" id="cf_telefone" value="${escAttr(c && c.telefone)}"></div>
         </div>
@@ -2385,6 +2417,10 @@ async function salvarContrato(id){
   const get = fid => document.getElementById(fid).value.trim();
   const convenio = get('cf_convenio');
   if(!convenio){ alert('Preencha o nome do convênio.'); return; }
+  // Status/Data de início da negociação não têm mais campo aqui (10/09/2026 -
+  // viraram editáveis só no resumo do topo, ver salvarStatusNegociacao) -
+  // preserva o que já tava salvo pra não apagar ao salvar o resto do form.
+  const registroAtual = id ? (CONTRATOS.find(x => x.id === id) || {}) : {};
 
   let arquivo;
   try { arquivo = await arquivoParaEnvio('cf_arquivo'); } catch(e){ return; }
@@ -2401,7 +2437,7 @@ async function salvarContrato(id){
     p_data_assinatura: get('cf_dataAssinatura') || null,
     p_data_solicitar_reajuste: get('cf_dataSolicitar') || null,
     p_data_vigencia_reajuste: get('cf_dataVigencia') || null,
-    p_status_negociacao: get('cf_status') || null,
+    p_status_negociacao: registroAtual.status_negociacao || null,
     p_email_negociacao: get('cf_email') || null,
     p_telefone: get('cf_telefone') || null,
     p_responsavel: get('cf_responsavel') || null,
@@ -2409,7 +2445,7 @@ async function salvarContrato(id){
     p_contrato_arquivo_nome: arquivo.nome,
     p_contrato_arquivo_base64: arquivo.base64,
     p_categoria: document.getElementById('cf_categoria').value,
-    p_data_inicio_negociacao: get('cf_dataInicioNeg') || null,
+    p_data_inicio_negociacao: registroAtual.data_inicio_negociacao || null,
   });
   btn.disabled = false; btn.textContent = 'Salvar convênio';
   if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
