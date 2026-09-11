@@ -2098,17 +2098,27 @@ function wireContratoSearch(){
 }
 
 async function carregarContratos(forcar){
-  if(contratosCarregados && !forcar) return;
   wireContratoSearch();
-  const [contratosResp, aditivosResp] = await Promise.all([
-    sb.rpc('get_convenios_contratos', { p_identity: IDENTITY, p_password: SENHA }),
-    sb.rpc('get_convenios_aditivos', { p_identity: IDENTITY, p_password: SENHA }),
-  ]);
-  if(contratosResp.error){ console.error('Erro ao carregar convenios_contratos', contratosResp.error); return; }
-  if(aditivosResp.error){ console.error('Erro ao carregar convenios_aditivos', aditivosResp.error); return; }
-  CONTRATOS = contratosResp.data || [];
-  ADITIVOS = aditivosResp.data || [];
-  contratosCarregados = true;
+  // Achado real 10/09/2026 (usuário reportou "sem clicar em outra coisa não
+  // aparece"): verificarRenovacoesContrato() (roda no login, antes de
+  // qualquer clique) já deixa contratosCarregados=true ao pré-carregar os
+  // dados pro aviso de renovação - o early-return abaixo pulava o FETCH
+  // certo, mas o renderContratoLista() ficava DEPOIS dele, então a lista
+  // nunca era desenhada na tela na primeira vez que a aba era aberta (só
+  // aparecia se algo mais tarde, tipo digitar na busca, chamasse o render
+  // de novo). Render agora é incondicional - só o fetch é que pula quando
+  // já tem dado carregado.
+  if(!contratosCarregados || forcar){
+    const [contratosResp, aditivosResp] = await Promise.all([
+      sb.rpc('get_convenios_contratos', { p_identity: IDENTITY, p_password: SENHA }),
+      sb.rpc('get_convenios_aditivos', { p_identity: IDENTITY, p_password: SENHA }),
+    ]);
+    if(contratosResp.error){ console.error('Erro ao carregar convenios_contratos', contratosResp.error); return; }
+    if(aditivosResp.error){ console.error('Erro ao carregar convenios_aditivos', aditivosResp.error); return; }
+    CONTRATOS = contratosResp.data || [];
+    ADITIVOS = aditivosResp.data || [];
+    contratosCarregados = true;
+  }
   renderContratoLista();
 }
 
