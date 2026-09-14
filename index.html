@@ -2339,6 +2339,7 @@ function renderResumoRenovacao(c){
   const itensFixos = [
     ['Mês de Renovação', mes ? escAttr(mes) + (dataLimite ? ` (até ${dataLimite})` : '') : '—'],
     ['Início da Vigência nova Tabela', c.data_vigencia_reajuste ? escAttr(c.data_vigencia_reajuste) : '—'],
+    ['Protocolo', c.protocolo ? escAttr(c.protocolo) : '—'],
   ];
   // Status/Data de início ficam EDITÁVEIS aqui (10/09/2026, pedido do
   // usuário: "precisa deixar o status editável para eu colocar que iniciei
@@ -2373,7 +2374,7 @@ async function salvarStatusNegociacao(id){
     p_data_vigencia_reajuste: c.data_vigencia_reajuste, p_status_negociacao: status,
     p_email_negociacao: c.email_negociacao, p_telefone: c.telefone, p_responsavel: c.responsavel,
     p_observacoes: c.observacoes, p_contrato_arquivo_nome: null, p_contrato_arquivo_base64: null,
-    p_categoria: c.categoria, p_data_inicio_negociacao: dataInicio,
+    p_categoria: c.categoria, p_data_inicio_negociacao: dataInicio, p_protocolo: c.protocolo,
   });
   if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
   await carregarContratos(true);
@@ -2413,6 +2414,7 @@ function renderContratoDetalhe(c){
           <div class="form-section-label">Renovação Contratual</div>
           <div class="form-field"><label>Data para solicitar renovação</label><input type="text" id="cf_dataSolicitar" placeholder="ex: Setembro" value="${escAttr(c && c.data_solicitar_reajuste)}"></div>
           <div class="form-field"><label>Data Base que entra em vigor a tabela nova</label><input type="text" id="cf_dataVigencia" placeholder="ex: Outubro" value="${escAttr(c && c.data_vigencia_reajuste)}"></div>
+          <div class="form-field"><label>Protocolo</label><input type="text" id="cf_protocolo" placeholder="número do protocolo" value="${escAttr(c && c.protocolo)}"></div>
           <div class="form-field"><label>E-mail para negociação</label><input type="text" id="cf_email" value="${escAttr(c && c.email_negociacao)}"></div>
           <div class="form-field"><label>Telefone</label><input type="text" id="cf_telefone" value="${escAttr(c && c.telefone)}"></div>
         </div>
@@ -2601,6 +2603,7 @@ async function salvarContrato(id){
     p_contrato_arquivo_base64: arquivo.base64,
     p_categoria: document.getElementById('cf_categoria').value,
     p_data_inicio_negociacao: registroAtual.data_inicio_negociacao || null,
+    p_protocolo: get('cf_protocolo') || null,
   });
   btn.disabled = false; btn.textContent = 'Salvar convênio';
   if(error){ alert('Erro ao salvar: ' + error.message); console.error(error); return; }
