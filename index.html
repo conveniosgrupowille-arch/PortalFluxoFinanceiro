@@ -896,12 +896,12 @@ function impostoPctParaRow(r){
   // pra tudo como o código assumia (usuário reportou "o valor recebido
   // esta diferente" comparando com o banco - a fatura de Exames vinha
   // descontada quase 4x mais do que devia). `entidade` já diferencia
-  // Cirurgias (hub); dentro de Exames/Consultas (iocw), `procedimento` é
-  // confiável porque cada conta é 100% de um tipo só (confirmado: fatura
-  // de Consulta bate exato com 42 contas x R$130, nenhuma mistura).
+  // Cirurgias (hub); dentro de Exames/Consultas (iocw), usa `ehConsultaScSaude`
+  // (calculado olhando TODAS as linhas da conta, não só a que sobreviveu do
+  // dedup - ver comentário em carregarTudo() sobre o bug da fatura 2546).
   if (stripAccents(r.convenio||'').toUpperCase().startsWith('SC SAUDE')) {
     if (r.entidade === 'hub') return 0.012;
-    return String(r.procedimento||'').toUpperCase().includes('CONSULTA') ? 0.048 : 0.012;
+    return r.ehConsultaScSaude ? 0.048 : 0.012;
   }
   // Levmed idem (10/09/2026) - "Levmed IOCW"/"Levmed HUB" não batem mais
   // com a chave exata "LEVMED SAUDE" de IMPOSTO_PCT_POR_CONVENIO.
@@ -1109,6 +1109,26 @@ async function carregarTudo(){
   const demonstrativoByGuia = {};
   demonstrativos.forEach(d => { if (d.guia) demonstrativoByGuia[d.convenio + '|' + d.guia] = d; });
 
+  // BUG REAL CORRIGIDO (15/09/2026) - detectar "é consulta" (pro imposto de
+  // SC Saúde) olhando só a linha que sobrou do dedup por conta dava errado:
+  // quando a consulta vem "empacotada" com exame incluso no mesmo
+  // atendimento (ex: Consulta + Tonometria + Mapeamento, R$130 fixo pro
+  // pacote todo), a fonte repete o total_honorarios da conta em TODAS as
+  // linhas (mesmo bug de sempre) - o dedup as vezes mantém a linha
+  // "TONOMETRIA"/"MAPEAMENTO" em vez de "CONSULTA", mesmo sendo a mesma
+  // consulta de R$130, taxando errado a 1,2% em vez de 4,8% (achado real:
+  // fatura 2546, 51 contas de R$130 cada = puro Consulta, mas só 18
+  // sobreviviam com procedimento="CONSULTA" após o dedup, as outras 33
+  // ficavam com nome de exame incluso e perdiam o imposto certo). Corrigido
+  // escaneando TODAS as linhas de cada conta (antes do dedup) - se QUALQUER
+  // linha da conta menciona CONSULTA, a conta inteira conta como consulta.
+  const contasComConsultaExames = new Set();
+  examesRaw.forEach(r => {
+    if (String(r.procedimento||'').toUpperCase().includes('CONSULTA')) {
+      contasComConsultaExames.add(r.conta || `${r.ficha}|${r.data_atendimento}|${r.total_honorarios}`);
+    }
+  });
+
   ROWS = [];
   examesRaw.forEach(r => {
     if (!r.convenio || !r.data_vencimento) return;
@@ -1136,10 +1156,12 @@ async function carregarTudo(){
     if (stripAccents(conv).toUpperCase().trim() === 'LEVMED SAUDE') {
       conv = 'Levmed IOCW';
     }
+    const dedupKeyRow = r.conta || `${r.ficha}|${r.data_atendimento}|${r.total_honorarios}`;
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valorFinal || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Exames|' + r.num_fatura] : null,
       entidade: 'iocw', procedimento: r.procedimento,
+      ehConsultaScSaude: contasComConsultaExames.has(dedupKeyRow),
     });
   });
   cirurgias.forEach(r => {
