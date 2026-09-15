@@ -459,7 +459,7 @@
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
           <h2>Repasse Médico Cirurgias</h2>
-          <p class="note" style="margin-bottom:4px;">Cirurgias (convênio-faturadas — Particular/Social ficam fora, mesma regra do REPASSE MÉDICO.xlsx). Escolha o médico e o mês pra ver o repasse por convênio.</p>
+          <p class="note" style="margin-bottom:4px;">Fonte: Registro de Cirurgias (Solicitação de acerto médico) — honorário já líquido de 18% de imposto. Só leitura aqui; pra corrigir status/valor, editar no sistema de origem. Escolha o médico e o mês pra ver o repasse por convênio.</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarRepasseCir" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -2468,11 +2468,173 @@ async function salvarRepasseStatus(id, status, dataRepasse){
 
 function processarRepasseMedicoPivot(repasseRows){
   window.REPASSE_MEDICO_RAW = repasseRows;
-  ['repasseIocw', 'repasseCir'].forEach((prefixo, i) => {
-    const ehCirurgias = i === 1;
-    montarFiltrosRepasse(prefixo, ehCirurgias);
-    ['Medico','Mes','Convenio'].forEach(campo => {
-      document.getElementById(prefixo+campo).addEventListener('change', () => renderRepassePivot(prefixo, ehCirurgias));
+  montarFiltrosRepasse('repasseIocw', false);
+  ['Medico','Mes','Convenio'].forEach(campo => {
+    document.getElementById('repasseIocw'+campo).addEventListener('change', () => renderRepassePivot('repasseIocw', false));
+  });
+  carregarRegistroCirurgias();
+}
+
+// ==================== REPASSE MÉDICO CIRURGIAS - REGISTRO DE CIRURGIAS ====
+// Pedido 15/09/2026: "para o financeiro a planilha de solicitação de
+// cirurgia sera integrada aqui... traga todos os pacientes pagos la e
+// todos os aguardando repasse e todos os que o convenio ja pagou". A aba
+// Cirurgias passou a usar DIRETO o outro sistema ("Registro de Cirurgias -
+// Solicitação de acerto médico", Supabase PRÓPRIO, diferente do Portal
+// Fluxo Financeiro) em vez da aba "Dados" do REPASSE MÉDICO.xlsx - resolve
+// de vez a ressalva registrada antes ("Valor pode não ser exatamente o
+// honorário"): aqui `valorConvenio` JÁ É o honorário específico digitado
+// por cirurgia, e `olho` já vem pronto (OD/OE/AO), sem precisar adivinhar
+// por texto. DE PROPÓSITO SÓ LEITURA aqui - editar status deve ser feito
+// no sistema de origem (Registro de Cirurgias), senão o dado bifurca em 2
+// lugares e um fica desatualizado.
+const CIRURGIAS_SUPABASE_URL = 'https://bovqplebifaomulwxint.supabase.co';
+const CIRURGIAS_SUPABASE_KEY = 'sb_publishable_eMk33poZGRs9xWbmC2bHBA_BgzvOiuT';
+const sbCirurgias = supabase.createClient(CIRURGIAS_SUPABASE_URL, CIRURGIAS_SUPABASE_KEY);
+// "Financeiro HUB" - login próprio desse outro sistema (harden_security.sql
+// dele), sem relação com Andreia/Artur/Carolline daqui.
+const CIRURGIAS_IDENTITY = 'Financeiro HUB';
+const CIRURGIAS_SENHA = '142536';
+
+async function carregarRegistroCirurgias(){
+  try {
+    const { data, error } = await sbCirurgias.rpc('get_entries', { p_identity: CIRURGIAS_IDENTITY, p_password: CIRURGIAS_SENHA });
+    if (error) throw error;
+    window.REGISTRO_CIRURGIAS_RAW = data || [];
+  } catch(e) {
+    console.error('Erro ao carregar Registro de Cirurgias', e);
+    window.REGISTRO_CIRURGIAS_RAW = [];
+    document.getElementById('repasseCirContainer').innerHTML = '<p class="note">Não consegui carregar o Registro de Cirurgias agora.</p>';
+  }
+  montarFiltrosRepasseCirurgias();
+  ['Medico','Mes','Convenio'].forEach(campo => {
+    document.getElementById('repasseCir'+campo).addEventListener('change', renderRepasseCirurgiasPivot);
+  });
+}
+
+// Mapeamento confirmado com o usuário (15/09/2026): pagamento_efetuado=Pago,
+// paga=Convênio Pagou (aguardando repasse ao médico), todo o resto=
+// Aguardando (ainda em etapas anteriores: autorização/agendamento/etc) -
+// glosa=true sempre vira Glosado, checado antes de tudo (senão ficaria
+// escondido dentro de "concluida"/outros status).
+function cirurgiaSituacao(entry){
+  const glosado = entry.glosa === true || entry.glosa === 'True' || entry.glosa === 'true';
+  if (glosado) return 'Glosado';
+  if (entry.status === 'pagamento_efetuado') return 'Pago';
+  if (entry.status === 'paga') return 'Convênio Pagou';
+  return 'Aguardando';
+}
+
+function montarFiltrosRepasseCirurgias(){
+  const linhas = window.REGISTRO_CIRURGIAS_RAW || [];
+  const medicos = [...new Set(linhas.map(r => r.medico).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const meses = [...new Set(linhas.map(r => (r.dataCirurgia||'').slice(0,7)).filter(Boolean))].sort();
+  const convenios = [...new Set(linhas.map(r => r.convenio).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+
+  const selMedico = document.getElementById('repasseCirMedico');
+  const valorAtual = selMedico.value;
+  selMedico.innerHTML = '<option value="">Selecione o médico…</option>' + medicos.map(m=>`<option value="${escAttr(m)}">${m}</option>`).join('');
+  selMedico.value = valorAtual;
+
+  document.getElementById('repasseCirMes').innerHTML = '<option value="">Todos os meses</option>' + meses.map(m => {
+    const partes = m.split('-'); const mesNum = parseInt(partes[1],10);
+    const nomeAbrev = REPASSE_MES_ORDER[mesNum-1];
+    return `<option value="${m}">${(REPASSE_MES_LABEL[nomeAbrev]||m)} / ${partes[0]}</option>`;
+  }).join('');
+  document.getElementById('repasseCirConvenio').innerHTML = '<option value="">Todos os convênios</option>' + convenios.map(c=>`<option value="${escAttr(c)}">${c}</option>`).join('');
+}
+
+function renderRepasseCirurgiasPivot(){
+  const medico = document.getElementById('repasseCirMedico').value;
+  const mesFiltro = document.getElementById('repasseCirMes').value;
+  const convenioFiltro = document.getElementById('repasseCirConvenio').value;
+  const container = document.getElementById('repasseCirContainer');
+  if(!medico){ container.innerHTML = '<p class="note">Selecione um médico acima pra ver o repasse.</p>'; return; }
+
+  const linhas = (window.REGISTRO_CIRURGIAS_RAW||[]).filter(r => {
+    if (r.medico !== medico) return false;
+    if (mesFiltro && (r.dataCirurgia||'').slice(0,7) !== mesFiltro) return false;
+    if (convenioFiltro && r.convenio !== convenioFiltro) return false;
+    return true;
+  });
+  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
+
+  const zerar = () => ({ Pago:0, ConvenioPagou:0, Aguardando:0, Glosado:0, qtd:0 });
+  const chaveDoGrupo = { 'Pago':'Pago', 'Convênio Pagou':'ConvenioPagou', 'Glosado':'Glosado', 'Aguardando':'Aguardando' };
+  const porConvenio = {};
+  linhas.forEach(r => {
+    const conv = r.convenio || '(sem convênio)';
+    const paciente = r.paciente || '(sem nome)';
+    const situacao = cirurgiaSituacao(r);
+    const grupo = chaveDoGrupo[situacao];
+    // Honorário líquido = valorConvenio * 0,82 (18% imposto), fórmula
+    // confirmada igual à usada no próprio Registro de Cirurgias.
+    const valor = Math.round((Number(r.valorConvenio)||0) * 0.82 * 100) / 100;
+    (porConvenio[conv] ||= { ...zerar(), pacientes:{} });
+    porConvenio[conv][grupo] += valor;
+    porConvenio[conv].qtd++;
+    (porConvenio[conv].pacientes[paciente] ||= { ...zerar(), linhas:[] });
+    const pac = porConvenio[conv].pacientes[paciente];
+    pac[grupo] += valor;
+    pac.qtd++;
+    pac.linhas.push({
+      data: r.dataCirurgia||'', procedimento: r.procedimento||'(sem procedimento)', lateralidade: r.olho||'—',
+      situacao, dataPagamentoConvenio: r.dataPagamentoConvenio||'', dataPagamentoMedico: r.dataPagamento||'', valor,
+    });
+  });
+
+  window.REPASSE_EXPANDIDOS = window.REPASSE_EXPANDIDOS || {};
+  const exp = window.REPASSE_EXPANDIDOS;
+  const badgeCirurgia = (situacao) => {
+    if (situacao === 'Pago') return '<span class="tag diff">Pago</span>';
+    if (situacao === 'Convênio Pagou') return '<span class="tag invest">Convênio Pagou</span>';
+    if (situacao === 'Glosado') return '<span class="tag dup">Glosado</span>';
+    return '<span class="tag">Aguardando</span>';
+  };
+  const linhaValoresCir = (g) => {
+    const total = g.Pago+g.ConvenioPagou+g.Aguardando+g.Glosado;
+    return `<td>${g.qtd}</td><td>${fmtMoney(g.Pago)}</td><td>${fmtMoney(g.ConvenioPagou)}</td><td>${fmtMoney(g.Aguardando)}</td><td>${fmtMoney(g.Glosado)}</td><td><b>${fmtMoney(total)}</b></td>`;
+  };
+
+  const convenios = Object.keys(porConvenio).sort((a,b)=>a.localeCompare(b));
+  const totalGeral = zerar();
+  let html = '<div class="fluxo-scroll"><table class="repasse-pivot"><thead><tr><th>Convênio / Paciente / Cirurgia</th><th>Qtd</th><th>Pago</th><th>Convênio Pagou</th><th>Aguardando</th><th>Glosado</th><th>Total</th></tr></thead><tbody>';
+  convenios.forEach(conv => {
+    const g = porConvenio[conv];
+    Object.keys(totalGeral).forEach(k => totalGeral[k]+=g[k]);
+    const chaveConv = 'repasseCir|'+conv;
+    const abertoConv = !!exp[chaveConv];
+    html += `<tr class="repasse-row-conv" data-toggle="${escAttr(chaveConv)}"><td>${abertoConv?'▾':'▸'} ${conv}</td>${linhaValoresCir(g)}</tr>`;
+    if (abertoConv) {
+      const pacientes = Object.keys(g.pacientes).sort((a,b)=>a.localeCompare(b));
+      pacientes.forEach(pac => {
+        const gp = g.pacientes[pac];
+        const chavePac = chaveConv+'|'+pac;
+        const abertoPac = !!exp[chavePac];
+        html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td>${linhaValoresCir(gp)}</tr>`;
+        if (abertoPac) {
+          gp.linhas.forEach(l => {
+            html += `<tr class="repasse-row-exame">` +
+              `<td>${l.data} · ${l.procedimento}</td>` +
+              `<td style="text-align:center;">${l.lateralidade}</td>` +
+              `<td colspan="2" style="text-align:center;">${badgeCirurgia(l.situacao)}</td>` +
+              `<td style="text-align:center;">Convênio: ${l.dataPagamentoConvenio||'—'}</td>` +
+              `<td style="text-align:center;">Repasse: ${l.dataPagamentoMedico||'—'}</td>` +
+              `<td>${fmtMoney(l.valor)}</td>` +
+              `</tr>`;
+          });
+        }
+      });
+    }
+  });
+  html += `<tr style="font-weight:700; background:var(--panel);"><td>Total geral</td>${linhaValoresCir(totalGeral)}</tr>`;
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+
+  container.querySelectorAll('[data-toggle]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      exp[tr.dataset.toggle] = !exp[tr.dataset.toggle];
+      renderRepasseCirurgiasPivot();
     });
   });
 }
