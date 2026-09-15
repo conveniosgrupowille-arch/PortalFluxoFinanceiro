@@ -252,6 +252,8 @@
     <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas <span class="n" id="tabFluxoPendCount" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
     <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
+    <button type="button" class="tab-btn" data-tab="repasse-iocw">Repasse Médico IOCW</button>
+    <button type="button" class="tab-btn" data-tab="repasse-cirurgias">Repasse Médico Cirurgias</button>
     <button type="button" class="tab-btn" data-tab="orcamento">Orçamento</button>
     <button type="button" class="tab-btn" data-tab="divergencias">Divergências <span class="n" id="tabDivCount"></span></button>
     <button type="button" class="tab-btn" data-tab="cortesias">Cortesia/Retorno</button>
@@ -411,6 +413,32 @@
         </div>
         <ul class="rank-list" id="listMedicoProc"></ul>
       </div>
+    </section>
+  </div>
+
+  <div id="panel-repasse-iocw" class="tab-panel" style="display:none;">
+    <section class="section" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Repasse Médico IOCW</h2>
+      <p class="note">Exames, consultas e retornos — mesma fonte da aba "Dados" do REPASSE MÉDICO.xlsx. Escolha o médico e o mês pra ver o repasse por convênio, igual na tabela dinâmica do Excel.</p>
+      <div class="filtros">
+        <select id="repasseIocwMedico"><option value="">Selecione o médico…</option></select>
+        <select id="repasseIocwMes"><option value="">Todos os meses</option></select>
+        <select id="repasseIocwConvenio"><option value="">Todos os convênios</option></select>
+      </div>
+      <div id="repasseIocwContainer"></div>
+    </section>
+  </div>
+
+  <div id="panel-repasse-cirurgias" class="tab-panel" style="display:none;">
+    <section class="section" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Repasse Médico Cirurgias</h2>
+      <p class="note">Cirurgias (convênio-faturadas — Particular/Social ficam fora, mesma regra do REPASSE MÉDICO.xlsx). Escolha o médico e o mês pra ver o repasse por convênio.</p>
+      <div class="filtros">
+        <select id="repasseCirMedico"><option value="">Selecione o médico…</option></select>
+        <select id="repasseCirMes"><option value="">Todos os meses</option></select>
+        <select id="repasseCirConvenio"><option value="">Todos os convênios</option></select>
+      </div>
+      <div id="repasseCirContainer"></div>
     </section>
   </div>
 
@@ -845,6 +873,11 @@ async function iniciarLogin(){
 
 const MES_ORDER = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const MES_NOMES = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'};
+// Repasse Médico (REPASSE MÉDICO.xlsx, aba "Dados") usa mês em minúsculo de
+// 3 letras ('jan','fev',...) - mapeamento próprio pra rótulo cheio e ordem
+// cronológica no filtro (senão o <select> ordena alfabético: abr,ago,dez...).
+const REPASSE_MES_ORDER = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const REPASSE_MES_LABEL = {jan:'Janeiro',fev:'Fevereiro',mar:'Março',abr:'Abril',mai:'Maio',jun:'Junho',jul:'Julho',ago:'Agosto',set:'Setembro',out:'Outubro',nov:'Novembro',dez:'Dezembro'};
 
 function stripAccents(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,''); }
 // Unimed as vezes vem faturada com 3 nomes distintos de convenio (Nacional/
@@ -1229,6 +1262,7 @@ async function carregarTudo(){
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
   processarPrevisao(faturadosParaDivergencias, repasseMedico);
   processarMedicos(faturadosParaDivergencias);
+  processarRepasseMedicoPivot(repasseMedico);
   processarCortesias(atendidosGeral);
   montarTabs();
   document.getElementById('tabs').style.display = '';
@@ -2169,6 +2203,95 @@ let MEDICOS_MESES = [];
 let MEDICOS_MES_ATUAL = 'Todos';
 let MEDICOS_ABERTO = null;
 let MEDICOS_CONVENIO_FILTRO = 'Todos os convênios';
+
+// ==================== REPASSE MÉDICO (IOCW / Cirurgias) ====================
+// Integra a aba "Dados" do REPASSE MÉDICO.xlsx (pedido 15/09/2026: "menu
+// Repasse Médico IOCW e Repasse Médico Cirurgias, formato tabela dinâmica
+// igual está no Excel"). Não precisou de sincronização nova - a tabela
+// `repasse_medico` já é atualizada todo dia pela automação das 10h
+// (migrar_repasse.py grava a aba Dados inteira, linha por linha, na coluna
+// jsonb `data`). "Cirurgia"/"Pequena Cirurgia" são os únicos 2 valores de
+// Tipo que representam cirurgia (Exame/Consulta/Retorno/Procedimento/
+// 1º Consulta/Pequeno Atendimento vão pro IOCW) - só 33 linhas de cirurgia
+// no total hoje (cirurgia particular/social já vem excluída na origem, ver
+// gerar_repasse_medico.py). O "formato tabela dinâmica" replicado aqui:
+// filtro de Médico+Mês+Convênio (mesmos campos de página do "Resumo de
+// Repasse" no Excel) + linhas agrupadas por Convênio, colunas por Situação
+// de Pagamento (Recebido/Aguardando/Glosado) - mais direto ao ponto do que
+// o pivot original pra decidir "quanto já dá pra repassar" (só Recebido).
+function repasseEhCirurgia(tipo){ return tipo === 'Cirurgia' || tipo === 'Pequena Cirurgia'; }
+
+function montarFiltrosRepasse(prefixo, ehCirurgias){
+  const linhas = (window.REPASSE_MEDICO_RAW||[]).filter(r => ehCirurgias === repasseEhCirurgia(r.data && r.data['Tipo']));
+  const medicos = [...new Set(linhas.map(r => r.data['Médico Solic.']).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const meses = [...new Set(linhas.map(r => r.data['Mes']).filter(Boolean))]
+    .sort((a,b)=>REPASSE_MES_ORDER.indexOf(a)-REPASSE_MES_ORDER.indexOf(b));
+  const convenios = [...new Set(linhas.map(r => r.data['Convênio']).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+
+  const selMedico = document.getElementById(prefixo+'Medico');
+  const valorMedicoAtual = selMedico.value;
+  selMedico.innerHTML = '<option value="">Selecione o médico…</option>' + medicos.map(m=>`<option value="${escAttr(m)}">${titleCase(m)}</option>`).join('');
+  selMedico.value = valorMedicoAtual;
+
+  document.getElementById(prefixo+'Mes').innerHTML = '<option value="">Todos os meses</option>' + meses.map(m=>`<option value="${m}">${REPASSE_MES_LABEL[m]||m}</option>`).join('');
+  document.getElementById(prefixo+'Convenio').innerHTML = '<option value="">Todos os convênios</option>' + convenios.map(c=>`<option value="${escAttr(c)}">${titleCase(c)}</option>`).join('');
+}
+
+function renderRepassePivot(prefixo, ehCirurgias){
+  const medico = document.getElementById(prefixo+'Medico').value;
+  const mes = document.getElementById(prefixo+'Mes').value;
+  const convenioFiltro = document.getElementById(prefixo+'Convenio').value;
+  const container = document.getElementById(prefixo+'Container');
+  if(!medico){ container.innerHTML = '<p class="note">Selecione um médico acima pra ver o repasse (igual escolher o campo de página "Médico Solic." no Excel).</p>'; return; }
+
+  const linhas = (window.REPASSE_MEDICO_RAW||[]).filter(r => {
+    const d = r.data || {};
+    if (ehCirurgias !== repasseEhCirurgia(d['Tipo'])) return false;
+    if (d['Médico Solic.'] !== medico) return false;
+    if (mes && d['Mes'] !== mes) return false;
+    if (convenioFiltro && d['Convênio'] !== convenioFiltro) return false;
+    return true;
+  });
+
+  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
+
+  const porConvenio = {};
+  linhas.forEach(r => {
+    const d = r.data;
+    const conv = titleCase(d['Convênio'] || '(sem convênio)');
+    const situacao = d['Situação de Pagamento'] || '';
+    const valor = Number(d['Valor']) || 0;
+    (porConvenio[conv] ||= { Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0 });
+    const grupo = (situacao === 'Recebido' || situacao === 'Aguardando' || situacao === 'Glosado') ? situacao : 'Outros';
+    porConvenio[conv][grupo] += valor;
+    porConvenio[conv].qtd++;
+  });
+
+  const convenios = Object.keys(porConvenio).sort((a,b)=>a.localeCompare(b));
+  const totalGeral = {Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0};
+  let html = '<div class="fluxo-scroll"><table><thead><tr><th>Convênio</th><th>Qtd</th><th>Recebido</th><th>Aguardando</th><th>Glosado</th><th>Outros</th><th>Total</th></tr></thead><tbody>';
+  convenios.forEach(conv => {
+    const g = porConvenio[conv];
+    const total = g.Recebido+g.Aguardando+g.Glosado+g.Outros;
+    Object.keys(totalGeral).forEach(k => totalGeral[k]+=g[k]);
+    html += `<tr><td>${conv}</td><td>${g.qtd}</td><td>${fmtMoney(g.Recebido)}</td><td>${fmtMoney(g.Aguardando)}</td><td>${fmtMoney(g.Glosado)}</td><td>${fmtMoney(g.Outros)}</td><td><b>${fmtMoney(total)}</b></td></tr>`;
+  });
+  const totalGeralValor = totalGeral.Recebido+totalGeral.Aguardando+totalGeral.Glosado+totalGeral.Outros;
+  html += `<tr style="font-weight:700; background:var(--panel);"><td>Total geral</td><td>${totalGeral.qtd}</td><td>${fmtMoney(totalGeral.Recebido)}</td><td>${fmtMoney(totalGeral.Aguardando)}</td><td>${fmtMoney(totalGeral.Glosado)}</td><td>${fmtMoney(totalGeral.Outros)}</td><td>${fmtMoney(totalGeralValor)}</td></tr>`;
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function processarRepasseMedicoPivot(repasseRows){
+  window.REPASSE_MEDICO_RAW = repasseRows;
+  ['repasseIocw', 'repasseCir'].forEach((prefixo, i) => {
+    const ehCirurgias = i === 1;
+    montarFiltrosRepasse(prefixo, ehCirurgias);
+    ['Medico','Mes','Convenio'].forEach(campo => {
+      document.getElementById(prefixo+campo).addEventListener('change', () => renderRepassePivot(prefixo, ehCirurgias));
+    });
+  });
+}
 
 function processarMedicos(faturadosRows){
   MEDICOS_ROWS = faturadosRows.filter(r => r.data_atendimento && r.medico).map(r => ({
