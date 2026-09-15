@@ -137,6 +137,10 @@
   .fluxo-scroll{overflow-x:auto; background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03);}
   /* Repasse Médico (15/09/2026) - drill-down Convênio -> Paciente -> Exame,
      clique pra expandir/recolher cada nível. */
+  table.repasse-pivot{table-layout:fixed;}
+  table.repasse-pivot th, table.repasse-pivot td{padding:6px 8px; overflow-wrap:anywhere; text-align:right;}
+  table.repasse-pivot th:first-child, table.repasse-pivot td:first-child{text-align:left; width:34%;}
+  table.repasse-pivot th:not(:first-child), table.repasse-pivot td:not(:first-child){width:11%;}
   table.repasse-pivot tr.repasse-row-conv{cursor:pointer; font-weight:600; background:var(--panel);}
   table.repasse-pivot tr.repasse-row-conv:hover{background:var(--teal-soft);}
   table.repasse-pivot tr.repasse-row-pac{cursor:pointer;}
@@ -1126,7 +1130,7 @@ async function carregarTudo(){
 
   const [
     cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos, orcamentoItens,
-    examesRaw, atendidosGeral, repasseMedico,
+    examesRaw, atendidosGeral, repasseMedico, repasseStatusResp,
   ] = await Promise.all([
     fetchAll('faturados_cirurgias', 'convenio,data_vencimento,valor_conta,num_fatura'),
     fetchAll('recebimentos_backfill', '*'),
@@ -1161,8 +1165,18 @@ async function carregarTudo(){
     // foi faturado (confirmado: Set/26 tinha 0 de 776 itens com convênio
     // em branco, contra 564 de 760 no atendidos_geral).
     fetchAll('repasse_medico', '*'),
+    // repasse_status: controle de repasse à CLÍNICA->MÉDICO (Efetuado/
+    // Aguardando + Data do Repasse), separado da Situação de Pagamento
+    // (convênio->clínica, que já vem pronta na planilha) - marcado direto
+    // no Portal (pedido 15/09/2026), tabela pequena (só o que já foi
+    // marcado manualmente), sem paginação por isso chamado direto.
+    sb.rpc('get_repasse_status', { p_identity: IDENTITY, p_password: SENHA }),
   ]);
   const faturadosParaDivergencias = examesRaw;
+  window.REPASSE_STATUS_POR_ID = {};
+  (repasseStatusResp && repasseStatusResp.data || []).forEach(r => {
+    window.REPASSE_STATUS_POR_ID[r.repasse_medico_id] = { status: r.status, data_repasse: r.data_repasse };
+  });
   aplicarDedupContaExames(faturadosParaDivergencias);
 
   bancoRows.forEach(r => BANCO_MAP[r.convenio] = r.banco);
@@ -2309,9 +2323,12 @@ function renderRepassePivot(prefixo, ehCirurgias){
     const pac = porConvenio[conv].pacientes[paciente];
     pac[grupo] += valor;
     pac.qtd++;
+    const statusRepasse = (window.REPASSE_STATUS_POR_ID||{})[r.id];
     pac.linhas.push({
-      data: d['Data']||'', procedimento: titleCase(d['Procedimento']||''),
+      id: r.id, data: d['Data']||'', procedimento: titleCase(d['Procedimento']||''),
       situacao: situacao||'', dataPagamento: d['Data de Recebimento']||'', valor,
+      statusRepasse: (statusRepasse && statusRepasse.status) || 'Aguardando',
+      dataRepasse: (statusRepasse && statusRepasse.data_repasse) || '',
     });
   });
 
@@ -2350,11 +2367,25 @@ function renderRepassePivot(prefixo, ehCirurgias){
         html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td>${linhaValores(gp)}</tr>`;
         if (abertoPac) {
           gp.linhas.forEach(l => {
-            html += `<tr class="repasse-row-exame">` +
+            // Repasse à CLÍNICA (Situação/Data Pagto Convênio, vem pronto da
+            // planilha) é diferente de Repasse ao MÉDICO (Status/Data do
+            // Repasse, editável aqui - pedido 15/09/2026). Data do Repasse só
+            // fica habilitada quando Status = Efetuado (não faz sentido date
+            // de um repasse que ainda não aconteceu).
+            html += `<tr class="repasse-row-exame" data-id-exame="${l.id}">` +
               `<td>${l.data} · ${l.procedimento}</td>` +
-              `<td colspan="2" style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
-              `<td colspan="2" style="text-align:center;">${l.dataPagamento ? 'Pago em '+l.dataPagamento : '—'}</td>` +
-              `<td colspan="2">${fmtMoney(l.valor)}</td>` +
+              `<td style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
+              `<td style="text-align:center;">${l.dataPagamento ? l.dataPagamento : '—'}</td>` +
+              `<td colspan="2" style="text-align:center;">` +
+                `<select class="repasse-status-sel" data-id="${l.id}" style="font-size:11.5px; padding:2px 4px;">` +
+                  `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando</option>` +
+                  `<option value="Efetuado"${l.statusRepasse==='Efetuado'?' selected':''}>Efetuado</option>` +
+                `</select>` +
+              `</td>` +
+              `<td style="text-align:center;">` +
+                `<input type="date" class="repasse-data-sel" data-id="${l.id}" value="${l.dataRepasse||''}" ${l.statusRepasse!=='Efetuado'?'disabled':''} style="font-size:11.5px; padding:2px 4px; width:120px;">` +
+              `</td>` +
+              `<td>${fmtMoney(l.valor)}</td>` +
               `</tr>`;
           });
         }
