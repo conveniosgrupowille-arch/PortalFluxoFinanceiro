@@ -2308,13 +2308,46 @@ function renderRepassePivot(prefixo, ehCirurgias){
   // abaixo dos convenios os exames" - clicar no convênio expande os
   // pacientes, clicar no paciente expande os procedimentos individuais,
   // igual o drill-down de um pivot de verdade no Excel).
+  // Detecta lateralidade (OE/OD/AO) só pelo texto do Procedimento - a aba
+  // "Dados" do REPASSE MÉDICO.xlsx não carrega Qtde./lateralidade por linha
+  // (diferente dos demonstrativos de convênio, que têm coluna "Qtde.").
+  // "BINOCULAR" no nome = AO (ambos os olhos); "MONOCULAR" = 1 olho só, mas
+  // não dá pra saber QUAL (direito ou esquerdo) com o dado disponível aqui -
+  // fica "OD/OE" genérico nesse caso. Isso é uma limitação real de dado, não
+  // aproximação arbitrária.
+  function repasseLateralidade(procedimento){
+    const p = stripAccents(procedimento||'').toUpperCase();
+    if (p.includes('BINOCULAR')) return 'AO';
+    if (p.includes('MONOCULAR')) return 'OD/OE';
+    return '—';
+  }
+
+  // Nome curto pro procedimento na lista (pedido 15/09/2026: "resuma a
+  // delaminação para Lasik") - nome oficial completo ("Delaminação Corneana
+  // Com Fotoablação Estromal...") é longo demais pra linha da tabela.
+  function repasseNomeCurtoProcedimento(procedimento){
+    const p = stripAccents(procedimento||'').toUpperCase();
+    if (p.includes('DELAMINACAO')) return 'Lasik';
+    return titleCase(procedimento||'');
+  }
+
+  // Honorário do médico = 18% de imposto descontado (pedido 15/09/2026,
+  // confirmado contra o portal "Registro de Cirurgias - Solicitação de
+  // acerto médico": mesma fórmula usada lá, honorarioLiquido = valor*0.82).
+  // Só aplicado na aba Cirurgias - pra Exames/Consultas (IOCW) não foi
+  // confirmado que a mesma regra de 18% vale, então o Valor continua bruto
+  // até confirmar.
   const porConvenio = {};
   linhas.forEach(r => {
     const d = r.data;
     const conv = titleCase(d['Convênio'] || '(sem convênio)');
     const paciente = titleCase(d['Paciente'] || '(sem nome)');
-    const situacao = d['Situação de Pagamento'] || '';
-    const valor = Number(d['Valor']) || 0;
+    let situacao = d['Situação de Pagamento'] || '';
+    const valorBruto = Number(d['Valor']) || 0;
+    const valor = ehCirurgias ? Math.round(valorBruto * 0.82 * 100) / 100 : valorBruto;
+    // "se o valor recebido estiver 00" vira Glosado, mesmo que a planilha
+    // tenha marcado Recebido (pedido explícito do usuário).
+    if (situacao === 'Recebido' && valorBruto <= 0) situacao = 'Glosado';
     const grupo = (situacao === 'Recebido' || situacao === 'Aguardando' || situacao === 'Glosado') ? situacao : 'Outros';
     (porConvenio[conv] ||= { Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0, pacientes:{} });
     porConvenio[conv][grupo] += valor;
@@ -2326,20 +2359,20 @@ function renderRepassePivot(prefixo, ehCirurgias){
     const statusRepasse = (window.REPASSE_STATUS_POR_ID||{})[r.id];
     pac.linhas.push({
       id: r.id, data: d['Data']||'', procedimento: titleCase(d['Procedimento']||''),
+      lateralidade: repasseLateralidade(d['Procedimento']),
       situacao: situacao||'', dataPagamento: d['Data de Recebimento']||'', valor,
       statusRepasse: (statusRepasse && statusRepasse.status) || 'Aguardando',
       dataRepasse: (statusRepasse && statusRepasse.data_repasse) || '',
     });
   });
 
-  // Simplificado pra só 3 estados (pedido 15/09/2026: "deixar apenas
-  // aguardando pagamento se nao recebemos do convenio ou glosou") - tudo que
-  // não é Recebido nem Glosado (Aguardando, Não verificável, Retorno/Não
-  // cobrado, Múltiplas situações, em branco) vira "Aguardando Pagamento".
+  // 3 estados, rótulos exatos pedidos 15/09/2026: "aguardando pgto convenio
+  // apos verificação nos demonstrativos ele assume recebido convenio ou
+  // glosado se o valor recebido estiver 00".
   const repasseBadgeSituacao = (situacao) => {
-    if (situacao === 'Recebido') return '<span class="tag diff">Pago</span>';
+    if (situacao === 'Recebido') return '<span class="tag diff">Recebido Convênio</span>';
     if (situacao === 'Glosado') return '<span class="tag dup">Glosado</span>';
-    return '<span class="tag invest">Aguardando Pagamento</span>';
+    return '<span class="tag invest">Aguardando Pgto Convênio</span>';
   };
 
   window.REPASSE_EXPANDIDOS = window.REPASSE_EXPANDIDOS || {};
@@ -2374,12 +2407,13 @@ function renderRepassePivot(prefixo, ehCirurgias){
             // de um repasse que ainda não aconteceu).
             html += `<tr class="repasse-row-exame" data-id-exame="${l.id}">` +
               `<td>${l.data} · ${l.procedimento}</td>` +
+              `<td style="text-align:center;">${l.lateralidade}</td>` +
               `<td style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
               `<td style="text-align:center;">${l.dataPagamento ? l.dataPagamento : '—'}</td>` +
-              `<td colspan="2" style="text-align:center;">` +
+              `<td style="text-align:center;">` +
                 `<select class="repasse-status-sel" data-id="${l.id}" style="font-size:11.5px; padding:2px 4px;">` +
-                  `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando</option>` +
-                  `<option value="Efetuado"${l.statusRepasse==='Efetuado'?' selected':''}>Efetuado</option>` +
+                  `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando Repasse</option>` +
+                  `<option value="Efetuado"${l.statusRepasse==='Efetuado'?' selected':''}>Pago</option>` +
                 `</select>` +
               `</td>` +
               `<td style="text-align:center;">` +
