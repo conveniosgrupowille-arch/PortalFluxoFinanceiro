@@ -135,6 +135,14 @@
   table.fluxo-table tr.fluxo-total-row td:first-child{background:#FBF4D9;}
   .fluxo-quinzena{background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03); overflow-x:auto; max-width:100%;}
   .fluxo-scroll{overflow-x:auto; background:var(--white); border-radius:14px; padding:16px; border:1px solid var(--line); box-shadow:0 1px 3px rgba(0,0,0,.03);}
+  /* Repasse Médico (15/09/2026) - drill-down Convênio -> Paciente -> Exame,
+     clique pra expandir/recolher cada nível. */
+  table.repasse-pivot tr.repasse-row-conv{cursor:pointer; font-weight:600; background:var(--panel);}
+  table.repasse-pivot tr.repasse-row-conv:hover{background:var(--teal-soft);}
+  table.repasse-pivot tr.repasse-row-pac{cursor:pointer;}
+  table.repasse-pivot tr.repasse-row-pac:hover{background:var(--paper);}
+  table.repasse-pivot tr.repasse-row-pac td:first-child{padding-left:28px; color:var(--slate-2);}
+  table.repasse-pivot tr.repasse-row-exame td{padding-left:48px; color:var(--stone); font-size:12px; border-bottom:1px dotted var(--line);}
   .fluxo-recebido{color:var(--teal-deep); font-weight:600;}
   .fluxo-a-receber{color:var(--amber); font-weight:600;}
   .fluxo-total{background:var(--teal-soft); font-weight:700;}
@@ -418,8 +426,21 @@
 
   <div id="panel-repasse-iocw" class="tab-panel" style="display:none;">
     <section class="section" style="margin-top:0; padding-top:0; border-top:none;">
-      <h2>Repasse Médico IOCW</h2>
-      <p class="note">Exames, consultas e retornos — mesma fonte da aba "Dados" do REPASSE MÉDICO.xlsx. Escolha o médico e o mês pra ver o repasse por convênio, igual na tabela dinâmica do Excel.</p>
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>Repasse Médico IOCW</h2>
+          <p class="note" style="margin-bottom:4px;">Exames, consultas e retornos — mesma fonte da aba "Dados" do REPASSE MÉDICO.xlsx. Escolha o médico e o mês pra ver o repasse por convênio, igual na tabela dinâmica do Excel.</p>
+        </div>
+        <div class="export-wrap" style="position:relative;">
+          <button type="button" class="month-btn" id="btnExportarRepasseIocw" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
+          <div id="exportMenuRepasseIocw" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.08); padding:6px; min-width:170px; z-index:10;">
+            <button type="button" class="export-opt" data-formato="imagem">🖼️ Imagem (PNG)</button>
+            <button type="button" class="export-opt" data-formato="pdf">📄 PDF</button>
+            <button type="button" class="export-opt" data-formato="imprimir">🖨️ Imprimir</button>
+            <button type="button" class="export-opt" data-formato="csv">📊 Baixar CSV</button>
+          </div>
+        </div>
+      </div>
       <div class="filtros">
         <select id="repasseIocwMedico"><option value="">Selecione o médico…</option></select>
         <select id="repasseIocwMes"><option value="">Todos os meses</option></select>
@@ -431,8 +452,21 @@
 
   <div id="panel-repasse-cirurgias" class="tab-panel" style="display:none;">
     <section class="section" style="margin-top:0; padding-top:0; border-top:none;">
-      <h2>Repasse Médico Cirurgias</h2>
-      <p class="note">Cirurgias (convênio-faturadas — Particular/Social ficam fora, mesma regra do REPASSE MÉDICO.xlsx). Escolha o médico e o mês pra ver o repasse por convênio.</p>
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>Repasse Médico Cirurgias</h2>
+          <p class="note" style="margin-bottom:4px;">Cirurgias (convênio-faturadas — Particular/Social ficam fora, mesma regra do REPASSE MÉDICO.xlsx). Escolha o médico e o mês pra ver o repasse por convênio.</p>
+        </div>
+        <div class="export-wrap" style="position:relative;">
+          <button type="button" class="month-btn" id="btnExportarRepasseCir" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
+          <div id="exportMenuRepasseCir" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.08); padding:6px; min-width:170px; z-index:10;">
+            <button type="button" class="export-opt" data-formato="imagem">🖼️ Imagem (PNG)</button>
+            <button type="button" class="export-opt" data-formato="pdf">📄 PDF</button>
+            <button type="button" class="export-opt" data-formato="imprimir">🖨️ Imprimir</button>
+            <button type="button" class="export-opt" data-formato="csv">📊 Baixar CSV</button>
+          </div>
+        </div>
+      </div>
       <div class="filtros">
         <select id="repasseCirMedico"><option value="">Selecione o médico…</option></select>
         <select id="repasseCirMes"><option value="">Todos os meses</option></select>
@@ -2255,31 +2289,89 @@ function renderRepassePivot(prefixo, ehCirurgias){
 
   if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
 
+  // Convênio -> Paciente -> linhas de exame/procedimento (pedido 15/09/2026:
+  // "preciso que apareça os pacientes quando selecionar os convenios e
+  // abaixo dos convenios os exames" - clicar no convênio expande os
+  // pacientes, clicar no paciente expande os procedimentos individuais,
+  // igual o drill-down de um pivot de verdade no Excel).
   const porConvenio = {};
   linhas.forEach(r => {
     const d = r.data;
     const conv = titleCase(d['Convênio'] || '(sem convênio)');
+    const paciente = titleCase(d['Paciente'] || '(sem nome)');
     const situacao = d['Situação de Pagamento'] || '';
     const valor = Number(d['Valor']) || 0;
-    (porConvenio[conv] ||= { Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0 });
     const grupo = (situacao === 'Recebido' || situacao === 'Aguardando' || situacao === 'Glosado') ? situacao : 'Outros';
+    (porConvenio[conv] ||= { Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0, pacientes:{} });
     porConvenio[conv][grupo] += valor;
     porConvenio[conv].qtd++;
+    (porConvenio[conv].pacientes[paciente] ||= { Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0, linhas:[] });
+    const pac = porConvenio[conv].pacientes[paciente];
+    pac[grupo] += valor;
+    pac.qtd++;
+    pac.linhas.push({
+      data: d['Data']||'', procedimento: titleCase(d['Procedimento']||''),
+      situacao: situacao||'', dataPagamento: d['Data de Recebimento']||'', valor,
+    });
   });
+
+  // Simplificado pra só 3 estados (pedido 15/09/2026: "deixar apenas
+  // aguardando pagamento se nao recebemos do convenio ou glosou") - tudo que
+  // não é Recebido nem Glosado (Aguardando, Não verificável, Retorno/Não
+  // cobrado, Múltiplas situações, em branco) vira "Aguardando Pagamento".
+  const repasseBadgeSituacao = (situacao) => {
+    if (situacao === 'Recebido') return '<span class="tag diff">Pago</span>';
+    if (situacao === 'Glosado') return '<span class="tag dup">Glosado</span>';
+    return '<span class="tag invest">Aguardando Pagamento</span>';
+  };
+
+  window.REPASSE_EXPANDIDOS = window.REPASSE_EXPANDIDOS || {};
+  const exp = window.REPASSE_EXPANDIDOS;
+  const linhaValores = (g) => {
+    const total = g.Recebido+g.Aguardando+g.Glosado+g.Outros;
+    return `<td>${g.qtd}</td><td>${fmtMoney(g.Recebido)}</td><td>${fmtMoney(g.Aguardando)}</td><td>${fmtMoney(g.Glosado)}</td><td>${fmtMoney(g.Outros)}</td><td><b>${fmtMoney(total)}</b></td>`;
+  };
 
   const convenios = Object.keys(porConvenio).sort((a,b)=>a.localeCompare(b));
   const totalGeral = {Recebido:0, Aguardando:0, Glosado:0, Outros:0, qtd:0};
-  let html = '<div class="fluxo-scroll"><table><thead><tr><th>Convênio</th><th>Qtd</th><th>Recebido</th><th>Aguardando</th><th>Glosado</th><th>Outros</th><th>Total</th></tr></thead><tbody>';
+  let html = '<div class="fluxo-scroll"><table class="repasse-pivot"><thead><tr><th>Convênio / Paciente / Procedimento</th><th>Qtd</th><th>Recebido</th><th>Aguardando</th><th>Glosado</th><th>Outros</th><th>Total</th></tr></thead><tbody>';
   convenios.forEach(conv => {
     const g = porConvenio[conv];
-    const total = g.Recebido+g.Aguardando+g.Glosado+g.Outros;
     Object.keys(totalGeral).forEach(k => totalGeral[k]+=g[k]);
-    html += `<tr><td>${conv}</td><td>${g.qtd}</td><td>${fmtMoney(g.Recebido)}</td><td>${fmtMoney(g.Aguardando)}</td><td>${fmtMoney(g.Glosado)}</td><td>${fmtMoney(g.Outros)}</td><td><b>${fmtMoney(total)}</b></td></tr>`;
+    const chaveConv = prefixo+'|'+conv;
+    const abertoConv = !!exp[chaveConv];
+    html += `<tr class="repasse-row-conv" data-toggle="${escAttr(chaveConv)}"><td>${abertoConv?'▾':'▸'} ${conv}</td>${linhaValores(g)}</tr>`;
+    if (abertoConv) {
+      const pacientes = Object.keys(g.pacientes).sort((a,b)=>a.localeCompare(b));
+      pacientes.forEach(pac => {
+        const gp = g.pacientes[pac];
+        const chavePac = chaveConv+'|'+pac;
+        const abertoPac = !!exp[chavePac];
+        html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td>${linhaValores(gp)}</tr>`;
+        if (abertoPac) {
+          gp.linhas.forEach(l => {
+            html += `<tr class="repasse-row-exame">` +
+              `<td>${l.data} · ${l.procedimento}</td>` +
+              `<td colspan="2" style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
+              `<td colspan="2" style="text-align:center;">${l.dataPagamento ? 'Pago em '+l.dataPagamento : '—'}</td>` +
+              `<td colspan="2">${fmtMoney(l.valor)}</td>` +
+              `</tr>`;
+          });
+        }
+      });
+    }
   });
-  const totalGeralValor = totalGeral.Recebido+totalGeral.Aguardando+totalGeral.Glosado+totalGeral.Outros;
-  html += `<tr style="font-weight:700; background:var(--panel);"><td>Total geral</td><td>${totalGeral.qtd}</td><td>${fmtMoney(totalGeral.Recebido)}</td><td>${fmtMoney(totalGeral.Aguardando)}</td><td>${fmtMoney(totalGeral.Glosado)}</td><td>${fmtMoney(totalGeral.Outros)}</td><td>${fmtMoney(totalGeralValor)}</td></tr>`;
+  html += `<tr style="font-weight:700; background:var(--panel);"><td>Total geral</td>${linhaValores(totalGeral)}</tr>`;
   html += '</tbody></table></div>';
   container.innerHTML = html;
+
+  container.querySelectorAll('[data-toggle]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const chave = tr.dataset.toggle;
+      exp[chave] = !exp[chave];
+      renderRepassePivot(prefixo, ehCirurgias);
+    });
+  });
 }
 
 function processarRepasseMedicoPivot(repasseRows){
@@ -2292,6 +2384,90 @@ function processarRepasseMedicoPivot(repasseRows){
     });
   });
 }
+
+// ==================== EXPORTAR REPASSE MÉDICO (Imagem/PDF/Imprimir/CSV) ====================
+// Pedido 15/09/2026: "acrescente um botao para imprimir a seleção em pdf
+// imprimir na impressora imprimir em imagem ou baixar csv... sempre apenas
+// da seleção que estiver na tela" - mesmo padrão de exportação já usado em
+// Fluxo de Receitas/Conferência por Banco, aplicado ao container atual
+// (que já reflete os filtros Médico/Mês/Convênio escolhidos, incluindo
+// quais convênios/pacientes estão expandidos no momento).
+function repasseNomeArquivo(prefixo){
+  const medico = document.getElementById(prefixo+'Medico').value || 'medico';
+  const mes = document.getElementById(prefixo+'Mes').value || 'todos-os-meses';
+  return `repasse_${medico.toLowerCase().replace(/\s+/g,'_')}_${mes}`;
+}
+async function capturarRepasseCanvas(prefixo){
+  return await html2canvas(document.getElementById(prefixo+'Container'), { backgroundColor: '#F6F5F1', scale: 2 });
+}
+async function exportarRepasseImagem(prefixo){
+  const canvas = await capturarRepasseCanvas(prefixo);
+  canvas.toBlob(blob => baixarBlobComoArquivo(blob, `${repasseNomeArquivo(prefixo)}.png`));
+}
+async function exportarRepassePDF(prefixo){
+  const canvas = await capturarRepasseCanvas(prefixo);
+  const { jsPDF } = window.jspdf;
+  const larguraMM = 280;
+  const alturaMM = larguraMM * canvas.height / canvas.width;
+  const pdf = new jsPDF({ orientation: alturaMM > larguraMM ? 'portrait' : 'landscape', unit: 'mm', format: [larguraMM, alturaMM] });
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, larguraMM, alturaMM);
+  pdf.save(`${repasseNomeArquivo(prefixo)}.pdf`);
+}
+function exportarRepasseCSV(prefixo){
+  const table = document.querySelector('#'+prefixo+'Container table');
+  if(!table) return;
+  const linhas = [...table.querySelectorAll('tr')].map(tr =>
+    [...tr.querySelectorAll('th,td')].map(td => '"' + td.textContent.replace(/\s+/g,' ').trim().replace(/"/g,'""') + '"').join(';')
+  );
+  const csv = '﻿' + linhas.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  baixarBlobComoArquivo(blob, `${repasseNomeArquivo(prefixo)}.csv`);
+}
+function imprimirRepasse(prefixo){
+  const container = document.getElementById(prefixo+'Container');
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!doctype html><html><head><title>Repasse Médico</title><meta charset="utf-8"><style>
+    body{font-family:'Inter',sans-serif; font-size:12px; padding:16px;}
+    table{border-collapse:collapse; width:100%;}
+    th,td{border:1px solid #ccc; padding:5px 9px; text-align:left;}
+    th{background:#eee;}
+    .tag{display:inline-block; font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:20px; background:#eee;}
+  </style></head><body>${container.innerHTML}</body></html>`);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => { janela.print(); janela.close(); }, 350);
+}
+function montarExportRepasse(prefixo, btnId, menuId){
+  const btn = document.getElementById(btnId);
+  const menu = document.getElementById(menuId);
+  btn.addEventListener('click', (e) => { e.stopPropagation(); menu.style.display = menu.style.display === 'none' ? '' : 'none'; });
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => { menu.style.display = 'none'; });
+  menu.querySelectorAll('.export-opt').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      menu.style.display = 'none';
+      if (!document.getElementById(prefixo+'Container').querySelector('table')) {
+        alert('Escolha um médico e gere a tabela antes de exportar.');
+        return;
+      }
+      const formato = opt.dataset.formato;
+      const original = opt.textContent;
+      opt.textContent = 'Gerando…';
+      try {
+        if (formato === 'imagem') await exportarRepasseImagem(prefixo);
+        else if (formato === 'pdf') await exportarRepassePDF(prefixo);
+        else if (formato === 'imprimir') imprimirRepasse(prefixo);
+        else exportarRepasseCSV(prefixo);
+      } catch (e) {
+        alert('Não consegui exportar: ' + e.message);
+      } finally {
+        opt.textContent = original;
+      }
+    });
+  });
+}
+montarExportRepasse('repasseIocw', 'btnExportarRepasseIocw', 'exportMenuRepasseIocw');
+montarExportRepasse('repasseCir', 'btnExportarRepasseCir', 'exportMenuRepasseCir');
 
 function processarMedicos(faturadosRows){
   MEDICOS_ROWS = faturadosRows.filter(r => r.data_atendimento && r.medico).map(r => ({
