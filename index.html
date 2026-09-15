@@ -2403,6 +2403,33 @@ function renderRepassePivot(prefixo, ehCirurgias){
       renderRepassePivot(prefixo, ehCirurgias);
     });
   });
+
+  container.querySelectorAll('.repasse-status-sel, .repasse-data-sel').forEach(el => {
+    el.addEventListener('click', (e) => e.stopPropagation()); // não fecha o paciente ao clicar no campo
+    el.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const tr = el.closest('tr');
+      const id = el.dataset.id;
+      const selStatus = tr.querySelector('.repasse-status-sel');
+      const selData = tr.querySelector('.repasse-data-sel');
+      selData.disabled = selStatus.value !== 'Efetuado';
+      if (selStatus.value !== 'Efetuado') selData.value = '';
+      salvarRepasseStatus(id, selStatus.value, selData.value || null);
+    });
+  });
+}
+
+// Grava o status de repasse (clínica -> médico) direto no Supabase - fica
+// só no Portal, não mexe na planilha Excel de origem (ver comentário acima
+// sobre a diferença entre Situação de Pagamento e Status Repasse).
+async function salvarRepasseStatus(id, status, dataRepasse){
+  window.REPASSE_STATUS_POR_ID = window.REPASSE_STATUS_POR_ID || {};
+  window.REPASSE_STATUS_POR_ID[id] = { status, data_repasse: dataRepasse };
+  const { error } = await sb.rpc('upsert_repasse_status', {
+    p_identity: IDENTITY, p_password: SENHA,
+    p_repasse_medico_id: Number(id), p_status: status, p_data_repasse: dataRepasse,
+  });
+  if (error) alert('Não consegui salvar o status de repasse: ' + error.message);
 }
 
 function processarRepasseMedicoPivot(repasseRows){
