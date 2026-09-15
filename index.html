@@ -141,6 +141,10 @@
   table.repasse-pivot th, table.repasse-pivot td{padding:6px 8px; overflow-wrap:anywhere; text-align:right;}
   table.repasse-pivot th:first-child, table.repasse-pivot td:first-child{text-align:left; width:34%;}
   table.repasse-pivot th:not(:first-child), table.repasse-pivot td:not(:first-child){width:11%;}
+  /* Repasse Cirurgias (15/09/2026) - 6 colunas em vez de 7 (sem Qtd, pedido
+     "quantidade nao precisa") - largura própria pra não sobrar espaço. */
+  table.repasse-pivot-cir th:first-child, table.repasse-pivot-cir td:first-child{width:28%;}
+  table.repasse-pivot-cir th:not(:first-child), table.repasse-pivot-cir td:not(:first-child){width:14.4%;}
   table.repasse-pivot tr.repasse-row-conv{cursor:pointer; font-weight:600; background:var(--panel);}
   table.repasse-pivot tr.repasse-row-conv:hover{background:var(--teal-soft);}
   table.repasse-pivot tr.repasse-row-pac{cursor:pointer;}
@@ -2544,6 +2548,28 @@ function montarFiltrosRepasseCirurgias(){
   document.getElementById('repasseCirConvenio').innerHTML = '<option value="">Todos os convênios</option>' + convenios.map(c=>`<option value="${escAttr(c)}">${c}</option>`).join('');
 }
 
+// Duas dimensões independentes (pedido 15/09/2026: "Status convenio = Pago,
+// Aguardando ou Glosa... Status Repasse = aguardando ou pago") - antes
+// tinha juntado tudo num "cirurgiaSituacao" só com 4 estados; o usuário
+// pediu pra separar de volta em 2 colunas, cada uma com seu próprio status.
+function cirurgiaStatusConvenio(r){
+  const glosado = r.glosa === true || r.glosa === 'True' || r.glosa === 'true';
+  if (glosado) return 'Glosa';
+  if (r.status === 'pagamento_efetuado' || r.status === 'paga') return 'Pago';
+  return 'Aguardando';
+}
+function cirurgiaStatusRepasse(r){
+  return r.status === 'pagamento_efetuado' ? 'Pago' : 'Aguardando';
+}
+function badgeStatusConvenio(s){
+  if (s === 'Pago') return '<span class="tag diff">Pago</span>';
+  if (s === 'Glosa') return '<span class="tag dup">Glosa</span>';
+  return '<span class="tag invest">Aguardando</span>';
+}
+function badgeStatusRepasse(s){
+  return s === 'Pago' ? '<span class="tag diff">Pago</span>' : '<span class="tag invest">Aguardando</span>';
+}
+
 function renderRepasseCirurgiasPivot(){
   const medico = document.getElementById('repasseCirMedico').value;
   const mesFiltro = document.getElementById('repasseCirMes').value;
@@ -2559,75 +2585,65 @@ function renderRepasseCirurgiasPivot(){
   });
   if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
 
-  const zerar = () => ({ Pago:0, ConvenioPagou:0, Aguardando:0, Glosado:0, qtd:0 });
-  const chaveDoGrupo = { 'Pago':'Pago', 'Convênio Pagou':'ConvenioPagou', 'Glosado':'Glosado', 'Aguardando':'Aguardando' };
+  // Convênio -> Paciente -> Cirurgia, sem quebra por status (pedido
+  // explícito "quantidade nao precisa") - só uma soma de Valor Pgto nas
+  // linhas de Convênio/Paciente, o resto das colunas só existe na cirurgia.
   const porConvenio = {};
   linhas.forEach(r => {
     const conv = r.convenio || '(sem convênio)';
     const paciente = r.paciente || '(sem nome)';
-    const situacao = cirurgiaSituacao(r);
-    const grupo = chaveDoGrupo[situacao];
     // Honorário líquido = valorConvenio * 0,82 (18% imposto), fórmula
     // confirmada igual à usada no próprio Registro de Cirurgias.
     const valor = Math.round((Number(r.valorConvenio)||0) * 0.82 * 100) / 100;
-    (porConvenio[conv] ||= { ...zerar(), pacientes:{} });
-    porConvenio[conv][grupo] += valor;
-    porConvenio[conv].qtd++;
-    (porConvenio[conv].pacientes[paciente] ||= { ...zerar(), linhas:[] });
+    (porConvenio[conv] ||= { total:0, pacientes:{} });
+    porConvenio[conv].total += valor;
+    (porConvenio[conv].pacientes[paciente] ||= { total:0, linhas:[] });
     const pac = porConvenio[conv].pacientes[paciente];
-    pac[grupo] += valor;
-    pac.qtd++;
+    pac.total += valor;
     pac.linhas.push({
-      data: r.dataCirurgia||'', procedimento: r.procedimento||'(sem procedimento)', lateralidade: r.olho||'—',
-      situacao, dataPagamentoConvenio: r.dataPagamentoConvenio||'', dataPagamentoMedico: r.dataPagamento||'', valor,
+      data: r.dataCirurgia||'', procedimento: r.procedimento||'(sem procedimento)', lateralidade: r.olho||'',
+      statusConvenio: cirurgiaStatusConvenio(r), dataPagamentoConvenio: r.dataPagamentoConvenio||'',
+      statusRepasse: cirurgiaStatusRepasse(r), dataRepasse: r.dataPagamento||'', valor,
     });
   });
 
   window.REPASSE_EXPANDIDOS = window.REPASSE_EXPANDIDOS || {};
   const exp = window.REPASSE_EXPANDIDOS;
-  const badgeCirurgia = (situacao) => {
-    if (situacao === 'Pago') return '<span class="tag diff">Pago</span>';
-    if (situacao === 'Convênio Pagou') return '<span class="tag invest">Convênio Pagou</span>';
-    if (situacao === 'Glosado') return '<span class="tag dup">Glosado</span>';
-    return '<span class="tag">Aguardando</span>';
-  };
-  const linhaValoresCir = (g) => {
-    const total = g.Pago+g.ConvenioPagou+g.Aguardando+g.Glosado;
-    return `<td>${g.qtd}</td><td>${fmtMoney(g.Pago)}</td><td>${fmtMoney(g.ConvenioPagou)}</td><td>${fmtMoney(g.Aguardando)}</td><td>${fmtMoney(g.Glosado)}</td><td><b>${fmtMoney(total)}</b></td>`;
-  };
 
   const convenios = Object.keys(porConvenio).sort((a,b)=>a.localeCompare(b));
-  const totalGeral = zerar();
-  let html = '<div class="fluxo-scroll"><table class="repasse-pivot"><thead><tr><th>Convênio / Paciente / Cirurgia</th><th>Qtd</th><th>Pago</th><th>Convênio Pagou</th><th>Aguardando</th><th>Glosado</th><th>Total</th></tr></thead><tbody>';
+  let totalGeral = 0;
+  let html = '<div class="fluxo-scroll"><table class="repasse-pivot repasse-pivot-cir"><thead><tr>' +
+    '<th>Convênio / Paciente / Cirurgia</th><th>Status Convênio</th><th>Valor Pgto</th>' +
+    '<th>Data do Pgto</th><th>Status Repasse</th><th>Data do Repasse</th></tr></thead><tbody>';
   convenios.forEach(conv => {
     const g = porConvenio[conv];
-    Object.keys(totalGeral).forEach(k => totalGeral[k]+=g[k]);
+    totalGeral += g.total;
     const chaveConv = 'repasseCir|'+conv;
     const abertoConv = !!exp[chaveConv];
-    html += `<tr class="repasse-row-conv" data-toggle="${escAttr(chaveConv)}"><td>${abertoConv?'▾':'▸'} ${conv}</td>${linhaValoresCir(g)}</tr>`;
+    html += `<tr class="repasse-row-conv" data-toggle="${escAttr(chaveConv)}"><td>${abertoConv?'▾':'▸'} ${conv}</td><td></td><td><b>${fmtMoney(g.total)}</b></td><td></td><td></td><td></td></tr>`;
     if (abertoConv) {
       const pacientes = Object.keys(g.pacientes).sort((a,b)=>a.localeCompare(b));
       pacientes.forEach(pac => {
         const gp = g.pacientes[pac];
         const chavePac = chaveConv+'|'+pac;
         const abertoPac = !!exp[chavePac];
-        html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td>${linhaValoresCir(gp)}</tr>`;
+        html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td><td></td><td><b>${fmtMoney(gp.total)}</b></td><td></td><td></td><td></td></tr>`;
         if (abertoPac) {
           gp.linhas.forEach(l => {
             html += `<tr class="repasse-row-exame">` +
-              `<td>${l.data} · ${l.procedimento}</td>` +
-              `<td style="text-align:center;">${l.lateralidade}</td>` +
-              `<td colspan="2" style="text-align:center;">${badgeCirurgia(l.situacao)}</td>` +
-              `<td style="text-align:center;">Convênio: ${l.dataPagamentoConvenio||'—'}</td>` +
-              `<td style="text-align:center;">Repasse: ${l.dataPagamentoMedico||'—'}</td>` +
+              `<td>${l.data} · ${l.procedimento}${l.lateralidade ? ' ('+l.lateralidade+')' : ''}</td>` +
+              `<td style="text-align:center;">${badgeStatusConvenio(l.statusConvenio)}</td>` +
               `<td>${fmtMoney(l.valor)}</td>` +
+              `<td style="text-align:center;">${l.dataPagamentoConvenio || '—'}</td>` +
+              `<td style="text-align:center;">${badgeStatusRepasse(l.statusRepasse)}</td>` +
+              `<td style="text-align:center;">${l.dataRepasse || '—'}</td>` +
               `</tr>`;
           });
         }
       });
     }
   });
-  html += `<tr style="font-weight:700; background:var(--panel);"><td>Total geral</td>${linhaValoresCir(totalGeral)}</tr>`;
+  html += `<tr style="font-weight:700; background:var(--panel);"><td>Total geral</td><td></td><td>${fmtMoney(totalGeral)}</td><td></td><td></td><td></td></tr>`;
   html += '</tbody></table></div>';
   container.innerHTML = html;
 
