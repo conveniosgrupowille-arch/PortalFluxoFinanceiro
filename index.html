@@ -240,7 +240,9 @@
       <div class="sub">Instituto de Olhos Dr. Carlo Wille e Hub Laser</div>
       <div class="sync" id="ultimaAtualizacao">Última atualização: —</div>
     </div>
-    <button type="button" id="logoutBtn" class="tab-btn" style="display:none; margin-left:auto; border:1px solid rgba(255,255,255,0.35);" onclick="fazerLogout()">Sair</button>
+    <button type="button" id="adminBtn" class="tab-btn" style="display:none; margin-left:auto; border:1px solid rgba(255,255,255,0.35);" onclick="abrirPainelAdmin()">Gerenciar usuários</button>
+    <button type="button" id="trocarSenhaBtn" class="tab-btn" style="display:none; border:1px solid rgba(255,255,255,0.35);" onclick="trocarMinhaSenha()">Trocar minha senha</button>
+    <button type="button" id="logoutBtn" class="tab-btn" style="display:none; border:1px solid rgba(255,255,255,0.35);" onclick="fazerLogout()">Sair</button>
   </div>
 </div>
 <div class="app-shell">
@@ -274,7 +276,29 @@
         </label>
         <button type="submit" class="month-btn active" style="width:100%; padding:10px; border-radius:8px; font-size:13.5px;">Entrar</button>
         <span id="loginErro" style="color:#c0392b; font-size:12.5px; text-align:center;"></span>
+        <a href="#" id="esqueciSenhaLink" style="text-align:center; font-size:12px; color:var(--stone);">Esqueci minha senha</a>
       </form>
+    </div>
+    <div class="card" id="cardEsqueciSenha" style="width:100%; max-width:320px; display:none;">
+      <h2 style="text-align:center; margin-bottom:16px;">Esqueci minha senha</h2>
+      <p class="note" style="text-align:center;">Escolha seu login — mandamos um link por e-mail pra você definir uma senha nova.</p>
+      <select id="esqueciSenhaIdentity" style="width:100%; margin:10px 0; box-sizing:border-box;">
+        <option value="" disabled selected>Selecione…</option>
+        <option value="Andreia">Andreia</option>
+        <option value="Artur">Artur</option>
+        <option value="Carolline">Carolline</option>
+      </select>
+      <button type="button" class="month-btn active" style="width:100%; padding:10px; border-radius:8px; font-size:13.5px;" onclick="pedirRedefinicaoSenha()">Enviar link por e-mail</button>
+      <p id="esqueciSenhaMsg" class="note" style="text-align:center; margin-top:10px;"></p>
+      <a href="#" id="voltarLoginLink" style="display:block; text-align:center; font-size:12px; color:var(--stone); margin-top:6px;">Voltar</a>
+    </div>
+    <div class="card" id="cardDefinirNovaSenha" style="width:100%; max-width:320px; display:none;">
+      <h2 style="text-align:center; margin-bottom:16px;">Definir nova senha</h2>
+      <label style="font-size:12.5px; font-weight:600; color:var(--slate-2);">Nova senha (mínimo 6 caracteres)
+        <input type="password" id="novaSenhaToken" style="width:100%; margin-top:5px; padding:9px 14px; border-radius:8px; border:1px solid var(--line); font-size:13px; font-family:'Inter',sans-serif; color:var(--slate); box-sizing:border-box;">
+      </label>
+      <button type="button" class="month-btn active" style="width:100%; padding:10px; border-radius:8px; font-size:13.5px; margin-top:14px;" onclick="confirmarNovaSenhaToken()">Salvar nova senha</button>
+      <p id="definirNovaSenhaMsg" class="note" style="text-align:center; margin-top:10px;"></p>
     </div>
   </div>
   <div id="statusCarregamento" class="status" style="display:none;">Carregando dados…</div>
@@ -536,6 +560,17 @@
   </div>
 </div>
 
+<div id="adminUsuariosModal" style="display:none; position:fixed; inset:0; background:rgba(20,30,29,0.65); z-index:900; align-items:center; justify-content:center; padding:24px;" onclick="if(event.target===this) fecharPainelAdmin()">
+  <div style="background:#fff; border-radius:14px; max-width:420px; width:100%; padding:24px 26px; box-shadow:0 12px 40px rgba(0,0,0,.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <h3 style="margin:0; color:var(--teal-deep);">Gerenciar usuários</h3>
+      <button type="button" class="btn-mini" onclick="fecharPainelAdmin()">Fechar ✕</button>
+    </div>
+    <p class="note">Redefina a senha de qualquer login sem precisar da senha atual dela.</p>
+    <div id="adminUsuariosLista"></div>
+  </div>
+</div>
+
 <div id="alertaRenovacaoModal" style="display:none; position:fixed; inset:0; background:rgba(20,30,29,0.65); z-index:900; align-items:center; justify-content:center; padding:24px;">
   <div style="background:#fff; border-radius:14px; max-width:480px; width:100%; padding:24px 26px; box-shadow:0 12px 40px rgba(0,0,0,.3); max-height:80vh; display:flex; flex-direction:column;">
     <h3 style="margin:0 0 4px; color:var(--amber);">⚠ Renovação de contrato</h3>
@@ -550,7 +585,7 @@ const SUPABASE_URL = "https://ylalexswpruqfvinkhdl.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Gj4D217YeW_puPB9ynf16g_shx1Oo9n";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let IDENTITY = null, SENHA = null;
+let IDENTITY = null, SENHA = null, ROLE = null;
 
 // Topbar e sidebar fixos ao rolar a tela (10/09/2026, pedido do usuário) -
 // ambos usam position:sticky; a altura do topbar varia (texto "Última
@@ -644,6 +679,8 @@ function fazerLogout(){
 async function iniciarAposLogin(){
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('logoutBtn').style.display = '';
+  document.getElementById('trocarSenhaBtn').style.display = '';
+  if(ROLE === 'admin') document.getElementById('adminBtn').style.display = '';
   document.getElementById('statusCarregamento').style.display = '';
   registrarAcesso();
   verificarRenovacoesContrato();
@@ -661,10 +698,108 @@ async function tentarLogin(identity, password){
   if(error || !data || !data.ok) return { ok: false, blocked: !!(data && data.blocked) };
   IDENTITY = identity;
   SENHA = password;
+  ROLE = data.role || null;
   return { ok: true };
 }
 
+// ==================== ESQUECI MINHA SENHA / DEFINIR NOVA SENHA ====================
+// Pedido do usuário (15/09/2026): link por e-mail pra redefinir senha. O
+// Postgres/Supabase só faz chamada HTTP (pg_net), não fala SMTP - então o
+// envio de verdade do e-mail é feito por um script local (fora daqui,
+// rodando numa tarefa agendada que verifica reset_senha_pedidos a cada
+// poucos minutos). Aqui só grava o pedido e trata o link recebido por
+// e-mail (?reset=<token> na URL).
+async function pedirRedefinicaoSenha(){
+  const identity = document.getElementById('esqueciSenhaIdentity').value;
+  const msgEl = document.getElementById('esqueciSenhaMsg');
+  if(!identity){ msgEl.textContent = 'Selecione quem você é.'; return; }
+  msgEl.textContent = 'Enviando…';
+  const { data, error } = await sb.rpc('solicitar_redefinicao_senha', { p_identity: identity });
+  if(error || !data || !data.ok){
+    msgEl.textContent = 'Esse login ainda não tem e-mail cadastrado — peça pra administradora.';
+    return;
+  }
+  msgEl.textContent = 'Prontinho — o link deve chegar no seu e-mail em alguns minutos.';
+}
+
+async function confirmarNovaSenhaToken(){
+  const token = new URLSearchParams(location.search).get('reset');
+  const senha = document.getElementById('novaSenhaToken').value;
+  const msgEl = document.getElementById('definirNovaSenhaMsg');
+  if(!senha || senha.length < 6){ msgEl.textContent = 'A senha precisa ter pelo menos 6 caracteres.'; return; }
+  msgEl.textContent = 'Salvando…';
+  const { data, error } = await sb.rpc('redefinir_senha_com_token', { p_token: token, p_senha_nova: senha });
+  if(error || !data || !data.ok){
+    msgEl.textContent = 'Esse link expirou ou já foi usado — peça um novo em "Esqueci minha senha".';
+    return;
+  }
+  msgEl.textContent = `Senha alterada! Pode entrar de novo com a senha nova, ${data.identity}.`;
+  document.getElementById('novaSenhaToken').value = '';
+  setTimeout(() => { history.replaceState(null, '', location.pathname); location.reload(); }, 2500);
+}
+
+// ==================== TROCAR MINHA SENHA (já logado) ====================
+async function trocarMinhaSenha(){
+  const atual = prompt('Digite sua senha atual:');
+  if(!atual) return;
+  const nova = prompt('Digite a senha nova (mínimo 6 caracteres):');
+  if(!nova) return;
+  if(nova.length < 6){ alert('A senha nova precisa ter pelo menos 6 caracteres.'); return; }
+  const { data, error } = await sb.rpc('alterar_minha_senha', { p_identity: IDENTITY, p_senha_atual: atual, p_senha_nova: nova });
+  if(error || !data || !data.ok){ alert('Não consegui trocar — confira se a senha atual está certa.'); return; }
+  SENHA = nova;
+  localStorage.removeItem('portalFluxoSessao');
+  alert('Senha trocada! Na próxima vez que entrar, use a senha nova.');
+}
+
+// ==================== PAINEL DE ADMINISTRADORA (gerenciar senha de todos) ====================
+async function abrirPainelAdmin(){
+  const { data, error } = await sb.rpc('get_usuarios', { p_identity: IDENTITY, p_password: SENHA });
+  if(error || !data){ alert('Não consegui carregar a lista de usuários.'); return; }
+  const modal = document.getElementById('adminUsuariosModal');
+  const box = document.getElementById('adminUsuariosLista');
+  box.innerHTML = data.map(u => `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px dotted var(--line);">
+      <span>${u.identity} ${u.role==='admin' ? '<span class="tag">admin</span>' : ''}</span>
+      <button type="button" class="btn-mini" onclick="adminRedefinirSenhaDe('${u.identity}')">Redefinir senha</button>
+    </div>
+  `).join('');
+  modal.style.display = 'flex';
+}
+async function adminRedefinirSenhaDe(identityAlvo){
+  const nova = prompt(`Nova senha pra ${identityAlvo} (mínimo 6 caracteres):`);
+  if(!nova) return;
+  if(nova.length < 6){ alert('A senha nova precisa ter pelo menos 6 caracteres.'); return; }
+  const { data, error } = await sb.rpc('admin_redefinir_senha', {
+    p_identity_admin: IDENTITY, p_senha_admin: SENHA, p_identity_alvo: identityAlvo, p_senha_nova: nova,
+  });
+  if(error || !data || !data.ok){ alert('Não consegui redefinir.'); return; }
+  alert(`Senha de ${identityAlvo} redefinida pra: ${nova}\n\nAnote/repasse pra pessoa agora — essa é a única vez que aparece na tela.`);
+}
+function fecharPainelAdmin(){ document.getElementById('adminUsuariosModal').style.display = 'none'; }
+
 async function iniciarLogin(){
+  // Link de redefinição de senha (?reset=<token>, veio do e-mail) - mostra
+  // a tela de "definir nova senha" em vez do login normal. Checado ANTES de
+  // qualquer outra coisa pra não pular direto pra uma sessão salva.
+  const tokenReset = new URLSearchParams(location.search).get('reset');
+  if (tokenReset) {
+    document.querySelector('#loginGate .card').style.display = 'none';
+    document.getElementById('cardDefinirNovaSenha').style.display = '';
+    return;
+  }
+
+  document.getElementById('esqueciSenhaLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelector('#loginGate .card').style.display = 'none';
+    document.getElementById('cardEsqueciSenha').style.display = '';
+  });
+  document.getElementById('voltarLoginLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('cardEsqueciSenha').style.display = 'none';
+    document.querySelector('#loginGate .card').style.display = '';
+  });
+
   // Pedido do usuário (10/09/2026): sempre pedir login, sem "lembrar"
   // permanente no navegador - removido o localStorage antigo que nunca
   // expirava (portalFluxoIdentity/portalFluxoSenha). Limpa esse resquício.
