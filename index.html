@@ -463,7 +463,7 @@
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
           <h2>Repasse Médico Cirurgias</h2>
-          <p class="note" style="margin-bottom:4px;">Fonte: Registro de Cirurgias (Solicitação de acerto médico) — honorário já líquido de 18% de imposto. Só leitura aqui; pra corrigir status/valor, editar no sistema de origem. Escolha o médico e o mês pra ver o repasse por convênio.</p>
+          <p class="note" style="margin-bottom:4px;">Fonte: Registro de Cirurgias (Solicitação de acerto médico) — honorário já líquido de 18% de imposto. Status Convênio/Valor/Data do Pgto vêm de lá (só leitura); Status Repasse/Data do Repasse são marcados aqui no Portal. Escolha o médico e o mês pra ver o repasse por convênio.</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarRepasseCir" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -2510,10 +2510,30 @@ async function carregarRegistroCirurgias(){
     window.REGISTRO_CIRURGIAS_RAW = [];
     document.getElementById('repasseCirContainer').innerHTML = '<p class="note">Não consegui carregar o Registro de Cirurgias agora.</p>';
   }
+  // Status de repasse editável (pedido 15/09/2026: "esses campos de repasse
+  // precisa deixar editavel") - guardado no Supabase DESTE Portal (não no
+  // Registro de Cirurgias, que tem um campo "status" com 9 valores
+  // possíveis que movem o workflow de lá - sobrescrever seria arriscado).
+  window.REPASSE_STATUS_CIRURGIA_POR_ID = {};
+  try {
+    const { data: statusData } = await sb.rpc('get_repasse_status_cirurgia', { p_identity: IDENTITY, p_password: SENHA });
+    (statusData || []).forEach(r => { window.REPASSE_STATUS_CIRURGIA_POR_ID[r.entry_id] = { status: r.status, data_repasse: r.data_repasse }; });
+  } catch(e) { console.error('Erro ao carregar status de repasse (cirurgias)', e); }
+
   montarFiltrosRepasseCirurgias();
   ['Medico','Mes','Convenio'].forEach(campo => {
     document.getElementById('repasseCir'+campo).addEventListener('change', renderRepasseCirurgiasPivot);
   });
+}
+
+async function salvarRepasseStatusCirurgia(entryId, status, dataRepasse){
+  window.REPASSE_STATUS_CIRURGIA_POR_ID = window.REPASSE_STATUS_CIRURGIA_POR_ID || {};
+  window.REPASSE_STATUS_CIRURGIA_POR_ID[entryId] = { status, data_repasse: dataRepasse };
+  const { error } = await sb.rpc('upsert_repasse_status_cirurgia', {
+    p_identity: IDENTITY, p_password: SENHA,
+    p_entry_id: entryId, p_status: status, p_data_repasse: dataRepasse,
+  });
+  if (error) alert('Não consegui salvar o status de repasse: ' + error.message);
 }
 
 // Mapeamento confirmado com o usuário (15/09/2026): pagamento_efetuado=Pago,
@@ -2600,10 +2620,16 @@ function renderRepasseCirurgiasPivot(){
     (porConvenio[conv].pacientes[paciente] ||= { total:0, linhas:[] });
     const pac = porConvenio[conv].pacientes[paciente];
     pac.total += valor;
+    // Override local (pedido 15/09/2026: "esses campos de repasse precisa
+    // deixar editavel") - se já foi marcado manualmente no Portal, vale por
+    // cima do que vier do Registro de Cirurgias; senão usa o valor de lá.
+    const overrideLocal = (window.REPASSE_STATUS_CIRURGIA_POR_ID||{})[r.id];
     pac.linhas.push({
-      data: r.dataCirurgia||'', procedimento: r.procedimento||'(sem procedimento)', lateralidade: r.olho||'',
+      id: r.id, data: r.dataCirurgia||'', procedimento: r.procedimento||'(sem procedimento)', lateralidade: r.olho||'',
       statusConvenio: cirurgiaStatusConvenio(r), dataPagamentoConvenio: r.dataPagamentoConvenio||'',
-      statusRepasse: cirurgiaStatusRepasse(r), dataRepasse: r.dataPagamento||'', valor,
+      statusRepasse: (overrideLocal && overrideLocal.status) || cirurgiaStatusRepasse(r),
+      dataRepasse: (overrideLocal && overrideLocal.data_repasse) || r.dataPagamento || '',
+      valor,
     });
   });
 
@@ -2630,13 +2656,28 @@ function renderRepasseCirurgiasPivot(){
         html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td><td></td><td><b>${fmtMoney(gp.total)}</b></td><td></td><td></td><td></td></tr>`;
         if (abertoPac) {
           gp.linhas.forEach(l => {
+            // Repasse só faz sentido depois que o convênio pagou (pedido
+            // 15/09/2026: "quando o convenio ainda nao pagou nao pode ficar
+            // aguardando deixe em branco assim como a glosa") - sem campo
+            // editável nenhum enquanto Status Convênio não for "Pago".
+            const podeRepassar = l.statusConvenio === 'Pago';
+            const celulasRepasse = podeRepassar
+              ? `<td style="text-align:center;">` +
+                  `<select class="repasse-cir-status-sel" data-id="${l.id}" style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
+                    `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando</option>` +
+                    `<option value="Pago"${l.statusRepasse==='Pago'?' selected':''}>Pago</option>` +
+                  `</select>` +
+                `</td>` +
+                `<td style="text-align:center;">` +
+                  `<input type="date" class="repasse-cir-data-sel" data-id="${l.id}" value="${l.dataRepasse||''}" ${l.statusRepasse!=='Pago'?'disabled':''} style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
+                `</td>`
+              : `<td style="text-align:center; color:var(--stone);">—</td><td style="text-align:center; color:var(--stone);">—</td>`;
             html += `<tr class="repasse-row-exame">` +
               `<td>${l.data} · ${l.procedimento}${l.lateralidade ? ' ('+l.lateralidade+')' : ''}</td>` +
               `<td style="text-align:center;">${badgeStatusConvenio(l.statusConvenio)}</td>` +
               `<td>${fmtMoney(l.valor)}</td>` +
               `<td style="text-align:center;">${l.dataPagamentoConvenio || '—'}</td>` +
-              `<td style="text-align:center;">${badgeStatusRepasse(l.statusRepasse)}</td>` +
-              `<td style="text-align:center;">${l.dataRepasse || '—'}</td>` +
+              celulasRepasse +
               `</tr>`;
           });
         }
@@ -2651,6 +2692,20 @@ function renderRepasseCirurgiasPivot(){
     tr.addEventListener('click', () => {
       exp[tr.dataset.toggle] = !exp[tr.dataset.toggle];
       renderRepasseCirurgiasPivot();
+    });
+  });
+
+  container.querySelectorAll('.repasse-cir-status-sel, .repasse-cir-data-sel').forEach(el => {
+    el.addEventListener('click', (e) => e.stopPropagation());
+    el.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const tr = el.closest('tr');
+      const id = el.dataset.id;
+      const selStatus = tr.querySelector('.repasse-cir-status-sel');
+      const selData = tr.querySelector('.repasse-cir-data-sel');
+      selData.disabled = selStatus.value !== 'Pago';
+      if (selStatus.value !== 'Pago') selData.value = '';
+      salvarRepasseStatusCirurgia(id, selStatus.value, selData.value || null);
     });
   });
 }
