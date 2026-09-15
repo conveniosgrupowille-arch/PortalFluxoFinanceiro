@@ -507,6 +507,16 @@
       </div>
       <div id="auditLogList"></div>
     </section>
+    <section class="section" id="secArquivoAcessos">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <div>
+          <h2>Acesso a arquivos de contrato</h2>
+          <p class="note" style="margin-bottom:4px;">Quem visualizou/baixou cada contrato ou aditivo — registrado pelo servidor a cada acesso, não dá pra pular.</p>
+        </div>
+        <button type="button" class="month-btn" id="arquivoAcessosRefreshBtn" onclick="carregarArquivoAcessos(true)">Atualizar</button>
+      </div>
+      <div id="arquivoAcessosList"></div>
+    </section>
   </div>
   </div>
   </div>
@@ -600,6 +610,30 @@ async function carregarAuditLog(forcar){
   }
 }
 
+let arquivoAcessosLoaded = false;
+async function carregarArquivoAcessos(forcar){
+  const box = document.getElementById('arquivoAcessosList');
+  if(arquivoAcessosLoaded && !forcar) return;
+  box.innerHTML = '<p class="note">Carregando…</p>';
+  try{
+    const { data, error } = await sb.rpc('get_arquivo_acessos', { p_identity: IDENTITY, p_password: SENHA, p_limit: 500 });
+    if(error) throw error;
+    if(!data || data.length === 0){
+      box.innerHTML = '<p class="note">Nenhum acesso a arquivo registrado ainda.</p>';
+      return;
+    }
+    box.innerHTML = data.map(ev => `
+      <div style="padding:8px 0; border-bottom:1px dotted var(--line); font-size:12.5px;">
+        ${new Date(ev.ts).toLocaleString('pt-BR')} · <b>${ev.identity}</b> ${ev.tipo === 'contrato' ? 'abriu o contrato de' : 'abriu um aditivo de'} <b>${ev.convenio || '(convênio removido)'}</b>
+      </div>
+    `).join('');
+    arquivoAcessosLoaded = true;
+  }catch(err){
+    box.innerHTML = '<p class="note">Erro ao carregar o log.</p>';
+    console.error(err);
+  }
+}
+
 const SESSAO_DURACAO_MS = 2 * 60 * 60 * 1000; // 2h (pedido 11/09/2026)
 
 function fazerLogout(){
@@ -619,12 +653,15 @@ async function iniciarAposLogin(){
   });
 }
 
+// app_login nunca dá erro HTTP em credencial errada (pedido 15/09/2026, ver
+// harden_security.sql/login_tentativas) - devolve {ok,blocked} normalmente,
+// justamente pra a contagem de tentativas conseguir gravar de verdade.
 async function tentarLogin(identity, password){
   const { data, error } = await sb.rpc('app_login', { p_identity: identity, p_password: password });
-  if(error || !data) return false;
+  if(error || !data || !data.ok) return { ok: false, blocked: !!(data && data.blocked) };
   IDENTITY = identity;
   SENHA = password;
-  return true;
+  return { ok: true };
 }
 
 async function iniciarLogin(){
@@ -644,8 +681,8 @@ async function iniciarLogin(){
     if (raw) {
       const sessao = JSON.parse(raw);
       if (sessao && sessao.expiraEm > Date.now()) {
-        const ok = await tentarLogin(sessao.identity, sessao.senha);
-        if (ok) { iniciarAposLogin(); return; }
+        const r = await tentarLogin(sessao.identity, sessao.senha);
+        if (r.ok) { iniciarAposLogin(); return; }
       }
       localStorage.removeItem('portalFluxoSessao');
     }
@@ -656,13 +693,15 @@ async function iniciarLogin(){
     const password = document.getElementById('loginPassword').value;
     const erroEl = document.getElementById('loginErro');
     if(!identity){ erroEl.textContent = 'Selecione quem você é.'; return; }
-    const ok = await tentarLogin(identity, password);
-    if(ok){
+    const r = await tentarLogin(identity, password);
+    if(r.ok){
       erroEl.textContent = '';
       localStorage.setItem('portalFluxoSessao', JSON.stringify({
         identity, senha: password, expiraEm: Date.now() + SESSAO_DURACAO_MS,
       }));
       iniciarAposLogin();
+    }else if(r.blocked){
+      erroEl.textContent = 'Muitas tentativas erradas — aguarde 15 minutos e tente de novo.';
     }else{
       erroEl.textContent = 'Senha incorreta.';
     }
@@ -1046,7 +1085,7 @@ function montarTabs(){
       btn.classList.add('active');
       document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
       document.getElementById('panel-' + btn.dataset.tab).style.display = '';
-      if(btn.dataset.tab === 'auditoria') carregarAuditLog(false);
+      if(btn.dataset.tab === 'auditoria') { carregarAuditLog(false); carregarArquivoAcessos(false); }
       if(btn.dataset.tab === 'contratos') carregarContratos(false);
     });
   });
