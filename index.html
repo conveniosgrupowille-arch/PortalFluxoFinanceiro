@@ -437,7 +437,7 @@
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
           <h2>Repasse Médico IOCW</h2>
-          <p class="note" style="margin-bottom:4px;">Exames, consultas e retornos — mesma fonte da aba "Dados" do REPASSE MÉDICO.xlsx. Escolha o médico e o mês pra ver o repasse por convênio, igual na tabela dinâmica do Excel.</p>
+          <p class="note" style="margin-bottom:4px;">Exames, consultas e retornos — mesma fonte da aba "Dados" do REPASSE MÉDICO.xlsx. Escolha a view e filtre por médico/mês/convênio, igual na tabela dinâmica do Excel.</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarRepasseIocw" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -451,12 +451,12 @@
       </div>
       <div class="filtros">
         <select id="repasseIocwView">
-          <option value="detalhado">Repasse por Paciente</option>
+          <option value="detalhado">Detalhamento Por Paciente</option>
           <option value="tipoPagamento">Tipo de Pagamento</option>
           <option value="resumo">Resumo de Repasse</option>
           <option value="listagemCpf">Listagem de CPF</option>
         </select>
-        <select id="repasseIocwMedico"><option value="">Selecione o médico…</option></select>
+        <select id="repasseIocwMedico"><option value="">Todos os médicos</option></select>
         <select id="repasseIocwMes"><option value="">Todos os meses</option></select>
         <select id="repasseIocwConvenio"><option value="">Todos os convênios</option></select>
       </div>
@@ -2288,7 +2288,7 @@ function montarFiltrosRepasse(prefixo, ehCirurgias){
 
   const selMedico = document.getElementById(prefixo+'Medico');
   const valorMedicoAtual = selMedico.value;
-  selMedico.innerHTML = '<option value="">Selecione o médico…</option>' + medicos.map(m=>`<option value="${escAttr(m)}">${titleCase(m)}</option>`).join('');
+  selMedico.innerHTML = '<option value="">Todos os médicos</option>' + medicos.map(m=>`<option value="${escAttr(m)}">${titleCase(m)}</option>`).join('');
   selMedico.value = valorMedicoAtual;
 
   document.getElementById(prefixo+'Mes').innerHTML = '<option value="">Todos os meses</option>' + meses.map(m=>`<option value="${m}">${REPASSE_MES_LABEL[m]||m}</option>`).join('');
@@ -2300,12 +2300,11 @@ function renderRepassePivot(prefixo, ehCirurgias){
   const mes = document.getElementById(prefixo+'Mes').value;
   const convenioFiltro = document.getElementById(prefixo+'Convenio').value;
   const container = document.getElementById(prefixo+'Container');
-  if(!medico){ container.innerHTML = '<p class="note">Selecione um médico acima pra ver o repasse (igual escolher o campo de página "Médico Solic." no Excel).</p>'; return; }
 
   const linhas = (window.REPASSE_MEDICO_RAW||[]).filter(r => {
     const d = r.data || {};
     if (ehCirurgias !== repasseEhCirurgia(d['Tipo'])) return false;
-    if (d['Médico Solic.'] !== medico) return false;
+    if (medico && d['Médico Solic.'] !== medico) return false;
     if (mes && d['Mes'] !== mes) return false;
     if (convenioFiltro && d['Convênio'] !== convenioFiltro) return false;
     return true;
@@ -2333,11 +2332,46 @@ function renderRepassePivot(prefixo, ehCirurgias){
   }
 
   // Nome curto pro procedimento na lista (pedido 15/09/2026: "resuma a
-  // delaminação para Lasik") - nome oficial completo ("Delaminação Corneana
-  // Com Fotoablação Estromal...") é longo demais pra linha da tabela.
+  // delaminação para Lasik"; pedido 16/09/2026, ainda sobrepondo com a
+  // coluna de lateralidade: "pode resumir o nome de exames aqui, tipo so a
+  // palavra consulta, so mapeamento, so tonometria, paquimetria e etc") -
+  // nome oficial completo da tabela de origem vem cheio de sufixo
+  // (BINOCULAR/MONOCULAR, texto entre parênteses, nome do convênio colado
+  // em "CONSULTA X") que não cabe na linha; aqui fica só a palavra-chave do
+  // exame/procedimento, checando os termos mais específicos antes dos
+  // genéricos (senão "CONSULTA + TONOMETRIA" cairia só em "Consulta").
   function repasseNomeCurtoProcedimento(procedimento){
     const p = stripAccents(procedimento||'').toUpperCase();
     if (p.includes('DELAMINACAO')) return 'Lasik';
+    if (p.includes('TRANS PRK')) return 'Trans PRK';
+    if (p.includes('FACECTOMIA')) return 'Facectomia';
+    if (p.includes('CAPSULOTOMIA')) return 'Capsulotomia Yag';
+    if (p.includes('INJECAO INTRAOCULAR')) return 'Injeção Intraocular';
+    if (p.includes('FOTOCOAGULACAO')) return 'Fotocoagulação';
+    if (p.includes('GONIOSCOPIA')) return 'Gonioscopia';
+    if (p.includes('CAMPIMETRIA')) return 'Campimetria';
+    if (p.includes('ANGIOFLUORESCEINOGRAFIA')) return 'Angiofluoresceinografia';
+    if (p.includes('OCT-A') || p.includes('TOMOGRAFIA POR COERENCIA')) return 'OCT-A';
+    if (p.includes('TOMOGRAFIA DE COERENCIA') || p.includes('OCT PAPILA') || p.includes('OCT MACULA')) return 'OCT';
+    if (p.includes('ESTEREOFOTO')) return 'Estereofoto';
+    if (p.includes('RETINOGRAFIA')) return 'Retinografia';
+    if (p.includes('MICROSCOPIA ESPECULAR')) return 'Microscopia Especular';
+    if (p.includes('BIOMETRIA')) return 'Biometria';
+    if (p.includes('CERATOSCOPIA')) return 'Ceratoscopia';
+    if (p.includes('PAQUIMETRIA')) return 'Paquimetria';
+    if (p.includes('MAPEAMENTO')) return 'Mapeamento';
+    if (p.includes('TONOMETRIA') && p.includes('CONSULTA')) return 'Consulta + Tonometria';
+    if (p.includes('TONOMETRIA')) return 'Tonometria';
+    if (p.includes('SCHIRMER') || p.includes('SHIRMER')) return 'Teste de Schirmer';
+    if (/TESTE DE\s*LENTE/.test(p) || p.includes('ORTOCERATOLOGIA')) return 'Teste de Lente';
+    if (p.includes('TESTE DE CORES')) return 'Teste de Cores';
+    if (p.includes('REFRACAO')) return 'Teste de Refração';
+    if (p.includes('ACUIDADE VISUAL')) return 'Acuidade Visual';
+    if (p.includes('VIAS LACRIMAIS')) return 'Avaliação Vias Lacrimais';
+    if (p.includes('CORPO ESTRANHO')) return 'Retirada de Corpo Estranho';
+    if (p.includes('TAXA DE SALA')) return 'Taxa de Sala';
+    if (p.includes('RETORNO')) return 'Retorno';
+    if (p.includes('CONSULTA')) return 'Consulta';
     return titleCase(procedimento||'');
   }
 
@@ -2368,7 +2402,7 @@ function renderRepassePivot(prefixo, ehCirurgias){
     pac.qtd++;
     const statusRepasse = (window.REPASSE_STATUS_POR_ID||{})[r.id];
     pac.linhas.push({
-      id: r.id, data: d['Data']||'', procedimento: titleCase(d['Procedimento']||''),
+      id: r.id, data: d['Data']||'', procedimento: repasseNomeCurtoProcedimento(d['Procedimento']),
       lateralidade: repasseLateralidade(d['Procedimento']),
       situacao: situacao||'', dataPagamento: d['Data de Recebimento']||'', valor,
       statusRepasse: (statusRepasse && statusRepasse.status) || 'Aguardando',
@@ -2483,6 +2517,7 @@ function processarRepasseMedicoPivot(repasseRows){
   ['Medico','Mes','Convenio'].forEach(campo => {
     document.getElementById('repasseIocw'+campo).addEventListener('change', renderRepasseIocwView);
   });
+  renderRepasseIocwView();
   carregarRegistroCirurgias();
 }
 
@@ -2610,36 +2645,51 @@ function renderRepasseResumo(){
   container.innerHTML = html;
 }
 
+// Lista voltada pra emissão de nota (pedido 16/09/2026: "deve trazer o cpf
+// para emissao de nota, caso o paciente ja tenha numeração de nota informe
+// numa coluna... apenas cpf que sao com dinheiro, pix cartao debito ou
+// credito, paciente faturado com guia nao entra") - só entram os 4 tipos de
+// pagamento que geram nota de verdade (dinheiro no caixa); Guia (convênio,
+// já tem a própria fatura) e Não Pagante (cortesia, sem nota) ficam fora.
+const TIPOS_EMISSAO_NOTA = ['Dinheiro','PIX','Cartão de Crédito','Cartão de Débito'];
+
 function renderRepasseListagemCpf(){
   const container = document.getElementById('repasseIocwContainer');
-  const linhas = repasseIocwLinhasFiltradas();
-  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
+  const linhas = repasseIocwLinhasFiltradas().filter(r => TIPOS_EMISSAO_NOTA.includes(r.data['Tipo de Pgto']));
+  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro (só entram pagamentos em Dinheiro/PIX/Cartão de Débito ou Crédito - Guia e Não Pagante não emitem nota).</p>'; return; }
 
   const porPac = {};
   linhas.forEach(r => {
     const d = r.data;
     const pac = titleCase(d['Paciente'] || '(sem nome)');
-    const tipo = d['Tipo de Pgto'] || '(sem tipo)';
+    const tipo = d['Tipo de Pgto'];
     const cpf = d['CPF Paciente'];
     const valor = Number(d['Valor']) || 0;
+    const nota = String(d['Número da nota']||'').trim();
     (porPac[pac] ||= { total:0, cpf:null, porTipo:{} });
     porPac[pac].total += valor;
-    porPac[pac].porTipo[tipo] = (porPac[pac].porTipo[tipo]||0) + valor;
+    (porPac[pac].porTipo[tipo] ||= { valor:0, notas: new Set() });
+    porPac[pac].porTipo[tipo].valor += valor;
+    if (nota) porPac[pac].porTipo[tipo].notas.add(nota);
     if (!porPac[pac].cpf && cpf) porPac[pac].cpf = cpf;
   });
 
+  const badgeNota = (notas) => notas.size ? [...notas].sort().join(', ') : '<span class="tag invest">Emitir Nota</span>';
+
   const pacientes = Object.keys(porPac).sort((a,b)=>a.localeCompare(b));
   let totalGeral = 0;
-  let html = '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Paciente / Tipo de Pgto</th><th style="text-align:right;">Soma de CPF Paciente</th><th style="text-align:right;">Soma de Valor</th></tr></thead><tbody>';
+  let html = '<p class="note" style="margin-bottom:8px;">Só pagamentos em Dinheiro/PIX/Cartão de Débito ou Crédito - Guia (convênio) e Não Pagante (cortesia) não emitem nota, ficam fora dessa lista.</p>';
+  html += '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Paciente / Tipo de Pgto</th><th style="text-align:right;">Soma de CPF Paciente</th><th style="text-align:right;">Soma de Valor</th><th style="text-align:left;">Número da Nota</th></tr></thead><tbody>';
   pacientes.forEach(pac => {
     const g = porPac[pac];
     totalGeral += g.total;
-    html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">${pac}</td><td style="text-align:right;">${g.cpf?String(g.cpf):''}</td><td style="text-align:right;">${fmtMoney(g.total)}</td></tr>`;
+    html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">${pac}</td><td style="text-align:right;">${g.cpf?String(g.cpf):''}</td><td style="text-align:right;">${fmtMoney(g.total)}</td><td></td></tr>`;
     Object.keys(g.porTipo).sort((a,b)=>a.localeCompare(b)).forEach(tipo => {
-      html += `<tr><td style="text-align:left; padding-left:28px; color:var(--slate-2);">${tipo}</td><td></td><td style="text-align:right;">${fmtMoney(g.porTipo[tipo])}</td></tr>`;
+      const gt = g.porTipo[tipo];
+      html += `<tr><td style="text-align:left; padding-left:28px; color:var(--slate-2);">${tipo}</td><td></td><td style="text-align:right;">${fmtMoney(gt.valor)}</td><td style="text-align:left;">${badgeNota(gt.notas)}</td></tr>`;
     });
   });
-  html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">Total Geral</td><td></td><td style="text-align:right;">${fmtMoney(totalGeral)}</td></tr>`;
+  html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">Total Geral</td><td></td><td style="text-align:right;">${fmtMoney(totalGeral)}</td><td></td></tr>`;
   html += '</tbody></table></div>';
   container.innerHTML = html;
 }
