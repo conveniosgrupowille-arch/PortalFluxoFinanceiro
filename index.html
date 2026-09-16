@@ -450,6 +450,12 @@
         </div>
       </div>
       <div class="filtros">
+        <select id="repasseIocwView">
+          <option value="detalhado">Repasse por Paciente</option>
+          <option value="tipoPagamento">Tipo de Pagamento</option>
+          <option value="resumo">Resumo de Repasse</option>
+          <option value="listagemCpf">Listagem de CPF</option>
+        </select>
         <select id="repasseIocwMedico"><option value="">Selecione o médico…</option></select>
         <select id="repasseIocwMes"><option value="">Todos os meses</option></select>
         <select id="repasseIocwConvenio"><option value="">Todos os convênios</option></select>
@@ -2473,10 +2479,169 @@ async function salvarRepasseStatus(id, status, dataRepasse){
 function processarRepasseMedicoPivot(repasseRows){
   window.REPASSE_MEDICO_RAW = repasseRows;
   montarFiltrosRepasse('repasseIocw', false);
+  document.getElementById('repasseIocwView').addEventListener('change', renderRepasseIocwView);
   ['Medico','Mes','Convenio'].forEach(campo => {
-    document.getElementById('repasseIocw'+campo).addEventListener('change', () => renderRepassePivot('repasseIocw', false));
+    document.getElementById('repasseIocw'+campo).addEventListener('change', renderRepasseIocwView);
   });
   carregarRegistroCirurgias();
+}
+
+// ==================== REPASSE IOCW - VIEWS EM FORMATO EXCEL (16/09/2026) ==
+// Pedido: "quero um menu de lista pra escolha de Tipo de pagamento, Resumo
+// de repasse, Listagem de cpf no formato das imagens buscando na planilha
+// de repasses os dados" - 3 pivots extras iguais às abas do REPASSE
+// MÉDICO.xlsx, selecionáveis no dropdown #repasseIocwView, reaproveitando
+// os mesmos 3 filtros (Médico/Mês/Convênio) que já existiam pro "Repasse
+// por Paciente". Read-only (só consulta), diferente do "Repasse por
+// Paciente" que tem os campos editáveis de Status/Data Repasse.
+function renderRepasseIocwView(){
+  const view = document.getElementById('repasseIocwView').value;
+  if (view === 'tipoPagamento') renderRepasseTipoPagamento();
+  else if (view === 'resumo') renderRepasseResumo();
+  else if (view === 'listagemCpf') renderRepasseListagemCpf();
+  else renderRepassePivot('repasseIocw', false);
+}
+
+function repasseIocwLinhasFiltradas(){
+  const medico = document.getElementById('repasseIocwMedico').value;
+  const mes = document.getElementById('repasseIocwMes').value;
+  const convenio = document.getElementById('repasseIocwConvenio').value;
+  return (window.REPASSE_MEDICO_RAW||[]).filter(r => {
+    const d = r.data || {};
+    if (repasseEhCirurgia(d['Tipo'])) return false;
+    if (medico && d['Médico Solic.'] !== medico) return false;
+    if (mes && d['Mes'] !== mes) return false;
+    if (convenio && d['Convênio'] !== convenio) return false;
+    return true;
+  });
+}
+
+function parseDateBR(s){
+  if(!s) return null;
+  const [d,m,a] = String(s).split('/');
+  if(!d||!m||!a) return null;
+  return new Date(+a,+m-1,+d);
+}
+
+// Só os tipos de pagamento em dinheiro/cartão/pix/etc de verdade - "Guia"
+// (procedimento faturado ao convênio, sem movimento de caixa nessa data) e
+// "Não Pagante" (cortesia) ficam de fora, igual no pivot original do Excel
+// (as colunas da imagem enviada eram só essas 6 + Total Geral).
+const TIPO_PGTO_COLUNAS = ['Cartão de Crédito','Cartão de Débito','Cheque','Depósito','Dinheiro','PIX'];
+
+function renderRepasseTipoPagamento(){
+  const container = document.getElementById('repasseIocwContainer');
+  const linhas = repasseIocwLinhasFiltradas().filter(r => TIPO_PGTO_COLUNAS.includes(r.data['Tipo de Pgto']));
+  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro (pagamentos via Guia/convênio ficam na aba "Resumo de Repasse").</p>'; return; }
+
+  const porData = {};
+  linhas.forEach(r => {
+    const d = r.data;
+    const data = d['Data'] || '(sem data)';
+    const tipo = d['Tipo de Pgto'];
+    const valor = Number(d['Valor']) || 0;
+    const pac = titleCase(d['Paciente']||'(sem nome)');
+    (porData[data] ||= { total:0, porTipo:{}, pacientes:{} });
+    porData[data].total += valor;
+    porData[data].porTipo[tipo] = (porData[data].porTipo[tipo]||0) + valor;
+    (porData[data].pacientes[pac] ||= { total:0, porTipo:{} });
+    porData[data].pacientes[pac].total += valor;
+    porData[data].pacientes[pac].porTipo[tipo] = (porData[data].pacientes[pac].porTipo[tipo]||0) + valor;
+  });
+
+  const datas = Object.keys(porData).sort((a,b)=>(parseDateBR(a)||0)-(parseDateBR(b)||0));
+  window.REPASSE_EXPANDIDOS = window.REPASSE_EXPANDIDOS || {};
+  const exp = window.REPASSE_EXPANDIDOS;
+  const linhaCols = (g) => TIPO_PGTO_COLUNAS.map(t=>`<td style="text-align:right;">${g.porTipo[t]?fmtMoney(g.porTipo[t]):''}</td>`).join('') + `<td style="text-align:right;"><b>${fmtMoney(g.total)}</b></td>`;
+
+  const totalGeralPorTipo = {}; let totalGeral = 0;
+  let html = '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Data / Paciente</th>' + TIPO_PGTO_COLUNAS.map(t=>`<th style="text-align:right;">${t}</th>`).join('') + '<th style="text-align:right;">Total Geral</th></tr></thead><tbody>';
+  datas.forEach(data => {
+    const g = porData[data];
+    TIPO_PGTO_COLUNAS.forEach(t => { totalGeralPorTipo[t] = (totalGeralPorTipo[t]||0) + (g.porTipo[t]||0); });
+    totalGeral += g.total;
+    const chave = 'repasseIocwTipoPgto|'+data;
+    const aberto = !!exp[chave];
+    html += `<tr data-toggle="${escAttr(chave)}" style="cursor:pointer; font-weight:600; background:var(--panel);"><td style="text-align:left;">${aberto?'▾':'▸'} ${data}</td>${linhaCols(g)}</tr>`;
+    if (aberto) {
+      Object.keys(g.pacientes).sort((a,b)=>a.localeCompare(b)).forEach(pac => {
+        html += `<tr><td style="text-align:left; padding-left:28px; color:var(--slate-2);">${pac}</td>${linhaCols(g.pacientes[pac])}</tr>`;
+      });
+    }
+  });
+  html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">Total Geral</td>${TIPO_PGTO_COLUNAS.map(t=>`<td style="text-align:right;">${fmtMoney(totalGeralPorTipo[t]||0)}</td>`).join('')}<td style="text-align:right;">${fmtMoney(totalGeral)}</td></tr>`;
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+
+  container.querySelectorAll('[data-toggle]').forEach(tr => {
+    tr.addEventListener('click', () => { exp[tr.dataset.toggle] = !exp[tr.dataset.toggle]; renderRepasseTipoPagamento(); });
+  });
+}
+
+function renderRepasseResumo(){
+  const container = document.getElementById('repasseIocwContainer');
+  const linhas = repasseIocwLinhasFiltradas();
+  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
+
+  const porConv = {};
+  linhas.forEach(r => {
+    const d = r.data;
+    const conv = titleCase(d['Convênio'] || '(sem convênio)');
+    const tipoProc = titleCase(d['Tipo Procedimento'] || '(sem tipo)');
+    const valor = Number(d['Valor']) || 0;
+    (porConv[conv] ||= { total:0, porTipo:{} });
+    porConv[conv].total += valor;
+    porConv[conv].porTipo[tipoProc] = (porConv[conv].porTipo[tipoProc]||0) + valor;
+  });
+
+  const convenios = Object.keys(porConv).sort((a,b)=>porConv[b].total-porConv[a].total);
+  let total = 0;
+  let html = '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Rótulos de Linha</th><th style="text-align:right;">Soma de Valor</th></tr></thead><tbody>';
+  convenios.forEach(conv => {
+    const g = porConv[conv];
+    total += g.total;
+    html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">${conv}</td><td style="text-align:right;">${fmtMoney(g.total)}</td></tr>`;
+    Object.keys(g.porTipo).sort((a,b)=>a.localeCompare(b)).forEach(tipo => {
+      html += `<tr><td style="text-align:left; padding-left:28px; color:var(--slate-2);">${tipo}</td><td style="text-align:right;">${fmtMoney(g.porTipo[tipo])}</td></tr>`;
+    });
+  });
+  html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">Total Geral</td><td style="text-align:right;">${fmtMoney(total)}</td></tr>`;
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function renderRepasseListagemCpf(){
+  const container = document.getElementById('repasseIocwContainer');
+  const linhas = repasseIocwLinhasFiltradas();
+  if(!linhas.length){ container.innerHTML = '<p class="note">Nada encontrado com esse filtro.</p>'; return; }
+
+  const porPac = {};
+  linhas.forEach(r => {
+    const d = r.data;
+    const pac = titleCase(d['Paciente'] || '(sem nome)');
+    const tipo = d['Tipo de Pgto'] || '(sem tipo)';
+    const cpf = d['CPF Paciente'];
+    const valor = Number(d['Valor']) || 0;
+    (porPac[pac] ||= { total:0, cpf:null, porTipo:{} });
+    porPac[pac].total += valor;
+    porPac[pac].porTipo[tipo] = (porPac[pac].porTipo[tipo]||0) + valor;
+    if (!porPac[pac].cpf && cpf) porPac[pac].cpf = cpf;
+  });
+
+  const pacientes = Object.keys(porPac).sort((a,b)=>a.localeCompare(b));
+  let totalGeral = 0;
+  let html = '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Paciente / Tipo de Pgto</th><th style="text-align:right;">Soma de CPF Paciente</th><th style="text-align:right;">Soma de Valor</th></tr></thead><tbody>';
+  pacientes.forEach(pac => {
+    const g = porPac[pac];
+    totalGeral += g.total;
+    html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">${pac}</td><td style="text-align:right;">${g.cpf?String(g.cpf):''}</td><td style="text-align:right;">${fmtMoney(g.total)}</td></tr>`;
+    Object.keys(g.porTipo).sort((a,b)=>a.localeCompare(b)).forEach(tipo => {
+      html += `<tr><td style="text-align:left; padding-left:28px; color:var(--slate-2);">${tipo}</td><td></td><td style="text-align:right;">${fmtMoney(g.porTipo[tipo])}</td></tr>`;
+    });
+  });
+  html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">Total Geral</td><td></td><td style="text-align:right;">${fmtMoney(totalGeral)}</td></tr>`;
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
 }
 
 // ==================== REPASSE MÉDICO CIRURGIAS - REGISTRO DE CIRURGIAS ====
