@@ -145,6 +145,21 @@
      "quantidade nao precisa") - largura própria pra não sobrar espaço. */
   table.repasse-pivot-cir th:first-child, table.repasse-pivot-cir td:first-child{width:28%;}
   table.repasse-pivot-cir th:not(:first-child), table.repasse-pivot-cir td:not(:first-child){width:14.4%;}
+  /* Detalhamento Por Paciente IOCW (16/09/2026) - "aqui precisa ficar em
+     coluna para ficar alinhado cada um no seu campo" - com 7 colunas o
+     11% padrão espremia demais o <select> de Status Repasse e o
+     <input type=date> de Data do Pagamento (que têm largura mínima real
+     de renderização no navegador), fazendo os dois parecerem sobrepostos
+     mesmo estando em <td> separados. Larguras próprias, mais folgadas
+     nessas 2 colunas e mais enxutas nas de texto curto (Qtd/Data Receb./
+     Total). */
+  table.repasse-pivot-iocw-det th:nth-child(1), table.repasse-pivot-iocw-det td:nth-child(1){width:29%;}
+  table.repasse-pivot-iocw-det th:nth-child(2), table.repasse-pivot-iocw-det td:nth-child(2){width:6%;}
+  table.repasse-pivot-iocw-det th:nth-child(3), table.repasse-pivot-iocw-det td:nth-child(3){width:11%;}
+  table.repasse-pivot-iocw-det th:nth-child(4), table.repasse-pivot-iocw-det td:nth-child(4){width:9%;}
+  table.repasse-pivot-iocw-det th:nth-child(5), table.repasse-pivot-iocw-det td:nth-child(5){width:19%;}
+  table.repasse-pivot-iocw-det th:nth-child(6), table.repasse-pivot-iocw-det td:nth-child(6){width:17%;}
+  table.repasse-pivot-iocw-det th:nth-child(7), table.repasse-pivot-iocw-det td:nth-child(7){width:9%;}
   table.repasse-pivot tr.repasse-row-conv{cursor:pointer; font-weight:600; background:var(--panel);}
   table.repasse-pivot tr.repasse-row-conv:hover{background:var(--teal-soft);}
   table.repasse-pivot tr.repasse-row-pac{cursor:pointer;}
@@ -2326,6 +2341,20 @@ let MEDICOS_CONVENIO_FILTRO = 'Todos os convênios';
 // o pivot original pra decidir "quanto já dá pra repassar" (só Recebido).
 function repasseEhCirurgia(tipo){ return tipo === 'Cirurgia' || tipo === 'Pequena Cirurgia'; }
 
+// Pedido 16/09/2026 (usuário viu "Pequeno Atendimento" no Resumo de
+// Repasse): "isso nao é para existir tudo precisa ser exame, exame cd ou
+// consulta se é cirurgia nao deve aparecer aqui". Achado real: além de
+// Cirurgia/Pequena Cirurgia (já excluídas pelo `Tipo`), existem linhas com
+// `Tipo Procedimento` = "YAG LASER" ou "PEQUENO ATENDIMENTO" (capsulotomia/
+// fotocoagulação a laser - procedimento pequeno, não exame/consulta de
+// verdade) que continuavam entrando na IOCW porque o `Tipo` delas não é
+// Cirurgia/Pequena Cirurgia. Aba IOCW passou a exigir também que `Tipo
+// Procedimento` seja um dos 3 valores pedidos.
+const REPASSE_TIPOS_PROC_IOCW = ['EXAME', 'EXAME CD', 'CONSULTA'];
+function repasseIocwTipoProcedimentoValido(tipoProcedimento){
+  return REPASSE_TIPOS_PROC_IOCW.includes(String(tipoProcedimento||'').toUpperCase().trim());
+}
+
 function montarFiltrosRepasse(prefixo, ehCirurgias){
   const linhas = (window.REPASSE_MEDICO_RAW||[]).filter(r => ehCirurgias === repasseEhCirurgia(r.data && r.data['Tipo']));
   const medicos = [...new Set(linhas.map(r => r.data['Médico Solic.']).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -2351,6 +2380,7 @@ function renderRepassePivot(prefixo, ehCirurgias){
   const linhas = (window.REPASSE_MEDICO_RAW||[]).filter(r => {
     const d = r.data || {};
     if (ehCirurgias !== repasseEhCirurgia(d['Tipo'])) return false;
+    if (!ehCirurgias && !repasseIocwTipoProcedimentoValido(d['Tipo Procedimento'])) return false;
     if (medico && d['Médico Solic.'] !== medico) return false;
     if (mes && d['Mes'] !== mes) return false;
     if (convenioFiltro && d['Convênio'] !== convenioFiltro) return false;
@@ -2486,7 +2516,7 @@ function renderRepassePivot(prefixo, ehCirurgias){
 
   const convenios = Object.keys(porConvenio).sort((a,b)=>a.localeCompare(b));
   const totalGeral = { total:0, qtd:0 };
-  let html = '<div class="fluxo-scroll"><table class="repasse-pivot"><thead><tr><th>Convênio / Paciente / Procedimento</th><th>Qtd</th><th>Status Convênio</th><th>Data do Receb.</th><th>Status Repasse</th><th>Data do Pagamento</th><th>Total</th></tr></thead><tbody>';
+  let html = '<div class="fluxo-scroll"><table class="repasse-pivot repasse-pivot-iocw-det"><thead><tr><th>Convênio / Paciente / Procedimento</th><th>Qtd</th><th>Status Convênio</th><th>Data do Receb.</th><th>Status Repasse</th><th>Data do Pagamento</th><th>Total</th></tr></thead><tbody>';
   convenios.forEach(conv => {
     const g = porConvenio[conv];
     totalGeral.total += g.total; totalGeral.qtd += g.qtd;
@@ -2517,13 +2547,13 @@ function renderRepassePivot(prefixo, ehCirurgias){
               `<td style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
               `<td style="text-align:center;">${l.dataPagamento ? l.dataPagamento : '—'}</td>` +
               `<td style="text-align:center;">` +
-                `<select class="repasse-status-sel" data-id="${l.id}" style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
+                `<select class="repasse-status-sel" data-id="${l.id}" style="font-size:10.5px; padding:2px; width:100%; min-width:0; max-width:100%; box-sizing:border-box;">` +
                   `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando Repasse</option>` +
                   `<option value="Efetuado"${l.statusRepasse==='Efetuado'?' selected':''}>Pago</option>` +
                 `</select>` +
               `</td>` +
               `<td style="text-align:center;">` +
-                `<input type="date" class="repasse-data-sel" data-id="${l.id}" value="${l.dataRepasse||''}" ${l.statusRepasse!=='Efetuado'?'disabled':''} style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
+                `<input type="date" class="repasse-data-sel" data-id="${l.id}" value="${l.dataRepasse||''}" ${l.statusRepasse!=='Efetuado'?'disabled':''} style="font-size:10.5px; padding:2px; width:100%; min-width:0; max-width:100%; box-sizing:border-box;">` +
               `</td>` +
               `<td title="${escAttr(repasseTooltipDesconto(l.valorBruto, l.tipoProcedimento))}">${fmtMoney(l.valor)}</td>` +
               `</tr>`;
@@ -2606,6 +2636,7 @@ function repasseIocwLinhasFiltradas(){
   return (window.REPASSE_MEDICO_RAW||[]).filter(r => {
     const d = r.data || {};
     if (repasseEhCirurgia(d['Tipo'])) return false;
+    if (!repasseIocwTipoProcedimentoValido(d['Tipo Procedimento'])) return false;
     if (medico && d['Médico Solic.'] !== medico) return false;
     if (mes && d['Mes'] !== mes) return false;
     if (convenio && d['Convênio'] !== convenio) return false;
@@ -2738,20 +2769,27 @@ function renderRepasseListagemCpf(){
 
   const badgeNota = (notas) => notas.size ? [...notas].sort().join(', ') : '<span class="tag invest">Emitir Nota</span>';
 
+  // Pedido 16/09/2026: "a forma de pagamento coloque em coluna na frente
+  // do paciente" - virou tabela achatada (sem hierarquia Paciente->Tipo),
+  // 1 linha por combinação Paciente+Tipo de Pgto, com Tipo de Pgto na
+  // primeira coluna.
   const pacientes = Object.keys(porPac).sort((a,b)=>a.localeCompare(b));
-  let totalGeral = 0;
-  let html = '<p class="note" style="margin-bottom:8px;">Só pagamentos em Dinheiro/PIX/Cartão de Débito ou Crédito - Guia (convênio) e Não Pagante (cortesia) não emitem nota, ficam fora dessa lista.</p>';
-  html += '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Paciente / Tipo de Pgto</th><th style="text-align:right;">Soma de CPF Paciente</th><th style="text-align:right;">Soma de Valor</th><th style="text-align:left;">Número da Nota</th></tr></thead><tbody>';
+  const linhasFlat = [];
   pacientes.forEach(pac => {
     const g = porPac[pac];
-    totalGeral += g.total;
-    html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">${pac}</td><td style="text-align:right;">${g.cpf?String(g.cpf):''}</td><td style="text-align:right;">${fmtMoney(g.total)}</td><td></td></tr>`;
     Object.keys(g.porTipo).sort((a,b)=>a.localeCompare(b)).forEach(tipo => {
-      const gt = g.porTipo[tipo];
-      html += `<tr><td style="text-align:left; padding-left:28px; color:var(--slate-2);">${tipo}</td><td></td><td style="text-align:right;">${fmtMoney(gt.valor)}</td><td style="text-align:left;">${badgeNota(gt.notas)}</td></tr>`;
+      linhasFlat.push({ pac, cpf: g.cpf, tipo, ...g.porTipo[tipo] });
     });
   });
-  html += `<tr style="font-weight:700; background:var(--panel);"><td style="text-align:left;">Total Geral</td><td></td><td style="text-align:right;">${fmtMoney(totalGeral)}</td><td></td></tr>`;
+
+  let totalGeral = 0;
+  let html = '<p class="note" style="margin-bottom:8px;">Só pagamentos em Dinheiro/PIX/Cartão de Débito ou Crédito - Guia (convênio) e Não Pagante (cortesia) não emitem nota, ficam fora dessa lista.</p>';
+  html += '<div class="fluxo-scroll"><table><thead><tr><th style="text-align:left;">Tipo de Pgto</th><th style="text-align:left;">Paciente</th><th style="text-align:right;">CPF Paciente</th><th style="text-align:right;">Valor</th><th style="text-align:left;">Número da Nota</th></tr></thead><tbody>';
+  linhasFlat.forEach(l => {
+    totalGeral += l.valor;
+    html += `<tr><td style="text-align:left;">${l.tipo}</td><td style="text-align:left;">${l.pac}</td><td style="text-align:right;">${l.cpf?String(l.cpf):''}</td><td style="text-align:right;">${fmtMoney(l.valor)}</td><td style="text-align:left;">${badgeNota(l.notas)}</td></tr>`;
+  });
+  html += `<tr style="font-weight:700; background:var(--panel);"><td colspan="3" style="text-align:left;">Total Geral</td><td style="text-align:right;">${fmtMoney(totalGeral)}</td><td></td></tr>`;
   html += '</tbody></table></div>';
   container.innerHTML = html;
 }
