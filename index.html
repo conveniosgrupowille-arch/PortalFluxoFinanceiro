@@ -369,6 +369,7 @@
         <div>
           <h2>Fluxo de receitas</h2>
           <p class="note" style="margin-bottom:4px;">Data de vencimento real, dia a dia. Valores em R$ (símbolo omitido nas células pra caber os 15/16 dias sem quebrar linha).</p>
+          <p class="note" id="ultimaAtualizacaoFluxo" style="margin-bottom:4px; font-family:'IBM Plex Mono',monospace; font-size:11px;">Atualizado em: —</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarFluxo" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -389,6 +390,7 @@
     <section class="section" id="secPrevisao" style="margin-top:0; padding-top:0; border-top:none;">
       <h2>Previsão</h2>
       <p class="note">Por convênio, mês de atendimento (não de vencimento) — o que foi faturado naquele lote, quanto já foi recebido, quanto ainda não foi faturado. Só Exames por enquanto (Cirurgias entra depois). "Não faturado" vem de Repasse Médico (mesma fonte do relatório de repasse) e é valor BRUTO, sem desconto de imposto — as outras 3 colunas já são líquidas.</p>
+      <p class="note" id="ultimaAtualizacaoPrevisao" style="margin-bottom:4px; font-family:'IBM Plex Mono',monospace; font-size:11px;">Atualizado em: —</p>
       <div class="month-picker" id="previsaoMesPicker" style="margin-bottom:14px;"></div>
       <div class="kpi-grid cols-4" id="kpiPrevisao"></div>
       <div class="card">
@@ -406,6 +408,7 @@
     <section class="section" id="secMedicos" style="margin-top:0; padding-top:0; border-top:none;">
       <h2>Médicos &amp; Procedimentos</h2>
       <p class="note">Ranking por valor faturado (bruto, sem desconto de imposto). Só Exames por enquanto. O drilldown de procedimentos por médico é calculado ao vivo (diferente do Painel local, onde esse detalhe fica congelado desde a última atualização manual).</p>
+      <p class="note" id="ultimaAtualizacaoMedicos" style="margin-bottom:4px; font-family:'IBM Plex Mono',monospace; font-size:11px;">Atualizado em: —</p>
       <div class="month-picker" id="medicosMesPicker" style="margin-bottom:14px;"></div>
       <div class="grid-2">
         <div class="card">
@@ -438,6 +441,7 @@
         <div>
           <h2>Repasse Médico IOCW</h2>
           <p class="note" style="margin-bottom:4px;">Exames, consultas e retornos — mesma fonte da aba "Dados" do REPASSE MÉDICO.xlsx. Escolha a view e filtre por médico/mês/convênio, igual na tabela dinâmica do Excel.</p>
+          <p class="note" id="ultimaAtualizacaoRepasseIocw" style="margin-bottom:4px; font-family:'IBM Plex Mono',monospace; font-size:11px;">Atualizado em: —</p>
         </div>
         <div class="export-wrap" style="position:relative;">
           <button type="button" class="month-btn" id="btnExportarRepasseIocw" style="display:flex; align-items:center; gap:6px;">⭳ Exportar</button>
@@ -494,6 +498,7 @@
     <section class="section" id="secOrcamento" style="margin-top:0; padding-top:0; border-top:none;">
       <h2>Orçamento</h2>
       <p class="note">Orçamentos do ano, direto da extração automática (sempre atualizado — não depende de upload manual).</p>
+      <p class="note" id="ultimaAtualizacaoOrcamento" style="margin-bottom:4px; font-family:'IBM Plex Mono',monospace; font-size:11px;">Atualizado em: —</p>
       <div class="month-picker" id="orcamentoMesPicker" style="margin-bottom:14px;"></div>
       <div class="kpi-grid" id="kpiOrcamento"></div>
       <button type="button" id="orcLimparFiltro" class="month-btn" style="display:none; margin-bottom:20px;">&times; Limpar filtro, ver tudo</button>
@@ -1098,19 +1103,60 @@ async function fetchAll(tabela, colunas){
 // tabelas que a sincronizacao automatica (sincronizar_supabase.py) re-escreve
 // a cada rodada do "Atualizar dados" do Painel local. Nao trava o carregamento
 // principal (roda em paralelo, sem await no chamador).
+//
+// Achado real 16/09/2026 (usuario: "verifique porque a data de atualização
+// nao esta acontecendo") - a funcao em si estava OK, mas `max(atualizado_em)`
+// em 4 tabelas SEM indice nessa coluna (33k/852/27k/11k linhas) forcava
+// sequential scan toda vez; sob concorrencia estourava o statement_timeout
+// da API (erro 57014) e a tela caia pra "indisponível". Corrigido criando
+// indice btree em atualizado_em nas 6 tabelas sincronizadas (testado 15x
+// seguidas sem timeout depois do indice).
+function fmtDataHoraBR(iso){
+  return new Date(iso).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
 async function carregarUltimaAtualizacao(){
   const el = document.getElementById('ultimaAtualizacao');
   try {
     const { data, error } = await sb.rpc('get_ultima_atualizacao', { p_identity: IDENTITY, p_password: SENHA });
     if (error || !data) { el.textContent = 'Última atualização: indisponível'; return; }
-    const maisRecente = new Date(data);
-    const fmt = maisRecente.toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
-    el.textContent = `Última atualização: ${fmt}`;
+    el.textContent = `Última atualização: ${fmtDataHoraBR(data)}`;
   } catch (e) {
     el.textContent = 'Última atualização: indisponível';
+  }
+}
+
+// Pedido 16/09/2026: "ela precisa atualizar dentro dos menus, para o gestao
+// saber que dia atualizei cada item" - além do horário global no topo,
+// cada aba mostra quando A FONTE DELA especificamente foi sincronizada pela
+// última vez (Fluxo/Previsão/Médicos usam faturados_exames+cirurgias,
+// Repasse Médico IOCW usa repasse_medico, Orçamento usa orcamento_itens) -
+// mais preciso que um horário só pra tudo, já que cada fonte sincroniza em
+// momentos ligeiramente diferentes dentro do mesmo `atualizar_tudo.py`.
+async function carregarUltimaAtualizacaoPorAba(){
+  const alvos = [
+    { elId: 'ultimaAtualizacaoFluxo', fontes: ['faturados_exames', 'faturados_cirurgias'] },
+    { elId: 'ultimaAtualizacaoPrevisao', fontes: ['faturados_exames', 'repasse_medico'] },
+    { elId: 'ultimaAtualizacaoMedicos', fontes: ['faturados_exames', 'faturados_cirurgias'] },
+    { elId: 'ultimaAtualizacaoRepasseIocw', fontes: ['repasse_medico'] },
+    { elId: 'ultimaAtualizacaoOrcamento', fontes: ['orcamento_itens'] },
+  ];
+  try {
+    const { data, error } = await sb.rpc('get_ultima_atualizacao_fontes', { p_identity: IDENTITY, p_password: SENHA });
+    if (error || !data) throw error || new Error('sem dados');
+    alvos.forEach(({ elId, fontes }) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const datas = fontes.map(f => data[f]).filter(Boolean);
+      if (!datas.length) { el.textContent = 'Atualizado em: indisponível'; return; }
+      const maisRecente = datas.reduce((a,b) => new Date(a) > new Date(b) ? a : b);
+      el.textContent = `Atualizado em: ${fmtDataHoraBR(maisRecente)}`;
+    });
+  } catch (e) {
+    alvos.forEach(({ elId }) => { const el = document.getElementById(elId); if (el) el.textContent = 'Atualizado em: indisponível'; });
   }
 }
 
@@ -1137,6 +1183,7 @@ async function carregarTudo(){
   const status = document.getElementById('statusCarregamento');
   status.textContent = 'Carregando dados…';
   carregarUltimaAtualizacao();
+  carregarUltimaAtualizacaoPorAba();
 
   const [
     cirurgias, backfill, extra, correcoes, confirmacoes, bancoRows, cnpjRows, demonstrativos, orcamentoItens,
@@ -2435,11 +2482,11 @@ function renderRepassePivot(prefixo, ehCirurgias){
 
   window.REPASSE_EXPANDIDOS = window.REPASSE_EXPANDIDOS || {};
   const exp = window.REPASSE_EXPANDIDOS;
-  const linhaValores = (g) => `<td>${g.qtd}</td><td></td><td></td><td></td><td><b>${fmtMoney(g.total)}</b></td>`;
+  const linhaValores = (g) => `<td>${g.qtd}</td><td></td><td></td><td></td><td></td><td><b>${fmtMoney(g.total)}</b></td>`;
 
   const convenios = Object.keys(porConvenio).sort((a,b)=>a.localeCompare(b));
   const totalGeral = { total:0, qtd:0 };
-  let html = '<div class="fluxo-scroll"><table class="repasse-pivot repasse-pivot-cir"><thead><tr><th>Convênio / Paciente / Procedimento</th><th>Qtd</th><th>Status Convênio</th><th>Data do Receb.</th><th>Status Repasse</th><th>Total</th></tr></thead><tbody>';
+  let html = '<div class="fluxo-scroll"><table class="repasse-pivot"><thead><tr><th>Convênio / Paciente / Procedimento</th><th>Qtd</th><th>Status Convênio</th><th>Data do Receb.</th><th>Status Repasse</th><th>Data do Pagamento</th><th>Total</th></tr></thead><tbody>';
   convenios.forEach(conv => {
     const g = porConvenio[conv];
     totalGeral.total += g.total; totalGeral.qtd += g.qtd;
@@ -2455,24 +2502,29 @@ function renderRepassePivot(prefixo, ehCirurgias){
         html += `<tr class="repasse-row-pac" data-toggle="${escAttr(chavePac)}"><td>${abertoPac?'▾':'▸'} ${pac}</td>${linhaValores(gp)}</tr>`;
         if (abertoPac) {
           gp.linhas.forEach(l => {
-            // Status Repasse (ao médico) só fica editável quando o Status
-            // Convênio já é "Recebido" - antes disso fica riscado (pedido
-            // 16/09/2026: "se estiver aguardando pagamento convenio deixar
-            // com um risquindo"); assim que muda pra Recebido, a planilha
-            // já traz o default certo (Aguardando Repasse, tratado acima).
-            const podeRepassar = l.situacao === 'Recebido';
-            const celulaRepasse = podeRepassar
-              ? `<select class="repasse-status-sel" data-id="${l.id}" data-data-repasse="${escAttr(l.dataRepasse||'')}" style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
-                  `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando Repasse</option>` +
-                  `<option value="Efetuado"${l.statusRepasse==='Efetuado'?' selected':''}>Pago</option>` +
-                `</select>`
-              : `<span style="text-decoration:line-through; color:var(--stone);">Aguardando Repasse</span>`;
+            // Status Repasse (ao médico) sempre editável - voltou atrás do
+            // "riscado até o convênio pagar" da rodada anterior (pedido
+            // 16/09/2026: "aguardando repasse precisa deixar para editar
+            // porque quando pagar o gestor precisa colocar pago") - quem
+            // decide que o repasse foi pago é o gestor, direto aqui, não
+            // depende do Status Convênio já ter virado Recebido. Data do
+            // Pagamento (do repasse ao médico, diferente da Data do
+            // Receb. do convênio) voltou como coluna própria, só habilita
+            // quando Status Repasse = Pago.
             html += `<tr class="repasse-row-exame" data-id-exame="${l.id}">` +
               `<td>${l.data} · ${l.procedimento}</td>` +
               `<td style="text-align:center;">${l.lateralidade}</td>` +
               `<td style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
               `<td style="text-align:center;">${l.dataPagamento ? l.dataPagamento : '—'}</td>` +
-              `<td style="text-align:center;">${celulaRepasse}</td>` +
+              `<td style="text-align:center;">` +
+                `<select class="repasse-status-sel" data-id="${l.id}" style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
+                  `<option value="Aguardando"${l.statusRepasse==='Aguardando'?' selected':''}>Aguardando Repasse</option>` +
+                  `<option value="Efetuado"${l.statusRepasse==='Efetuado'?' selected':''}>Pago</option>` +
+                `</select>` +
+              `</td>` +
+              `<td style="text-align:center;">` +
+                `<input type="date" class="repasse-data-sel" data-id="${l.id}" value="${l.dataRepasse||''}" ${l.statusRepasse!=='Efetuado'?'disabled':''} style="font-size:10.5px; padding:2px; width:100%; max-width:100%; box-sizing:border-box;">` +
+              `</td>` +
               `<td title="${escAttr(repasseTooltipDesconto(l.valorBruto, l.tipoProcedimento))}">${fmtMoney(l.valor)}</td>` +
               `</tr>`;
           });
@@ -2492,11 +2544,17 @@ function renderRepassePivot(prefixo, ehCirurgias){
     });
   });
 
-  container.querySelectorAll('.repasse-status-sel').forEach(el => {
+  container.querySelectorAll('.repasse-status-sel, .repasse-data-sel').forEach(el => {
     el.addEventListener('click', (e) => e.stopPropagation()); // não fecha o paciente ao clicar no campo
     el.addEventListener('change', (e) => {
       e.stopPropagation();
-      salvarRepasseStatus(el.dataset.id, el.value, el.dataset.dataRepasse || null);
+      const tr = el.closest('tr');
+      const id = el.dataset.id;
+      const selStatus = tr.querySelector('.repasse-status-sel');
+      const selData = tr.querySelector('.repasse-data-sel');
+      selData.disabled = selStatus.value !== 'Efetuado';
+      if (selStatus.value !== 'Efetuado') selData.value = '';
+      salvarRepasseStatus(id, selStatus.value, selData.value || null);
     });
   });
 }
