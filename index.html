@@ -2343,16 +2343,25 @@ function repasseEhCirurgia(tipo){ return tipo === 'Cirurgia' || tipo === 'Pequen
 
 // Pedido 16/09/2026 (usuário viu "Pequeno Atendimento" no Resumo de
 // Repasse): "isso nao é para existir tudo precisa ser exame, exame cd ou
-// consulta se é cirurgia nao deve aparecer aqui". Achado real: além de
-// Cirurgia/Pequena Cirurgia (já excluídas pelo `Tipo`), existem linhas com
-// `Tipo Procedimento` = "YAG LASER" ou "PEQUENO ATENDIMENTO" (capsulotomia/
-// fotocoagulação a laser - procedimento pequeno, não exame/consulta de
-// verdade) que continuavam entrando na IOCW porque o `Tipo` delas não é
-// Cirurgia/Pequena Cirurgia. Aba IOCW passou a exigir também que `Tipo
-// Procedimento` seja um dos 3 valores pedidos.
-const REPASSE_TIPOS_PROC_IOCW = ['EXAME', 'EXAME CD', 'CONSULTA'];
-function repasseIocwTipoProcedimentoValido(tipoProcedimento){
-  return REPASSE_TIPOS_PROC_IOCW.includes(String(tipoProcedimento||'').toUpperCase().trim());
+// consulta se é cirurgia nao deve aparecer aqui" - correção do próprio
+// usuário logo depois: "nao, yag laser e fotocoagulação continua mas no
+// caso fotocoagulação vira yag laser ali nessa tela". Ou seja: Yag Laser
+// continua existindo como categoria - só "Pequeno Atendimento" não pode
+// aparecer como nome, porque TODAS as linhas com esse `Tipo Procedimento`
+// são Fotocoagulação (achado via `select distinct Procedimento` - 100% das
+// linhas "PEQUENO ATENDIMENTO" são Fotocoagulação a laser), e Fotocoagulação
+// deve ser exibida como "Yag Laser" aqui (mesma categoria de repasse que
+// Capsulotomia Yag Laser, que já vinha com `Tipo Procedimento`="YAG LASER").
+// `categoriaRepasseIocw` deriva a categoria pelo NOME do procedimento (não
+// só pelo campo Tipo Procedimento cru), pra pegar isso certo.
+const REPASSE_TIPOS_PROC_IOCW = ['EXAME', 'EXAME CD', 'CONSULTA', 'YAG LASER'];
+function categoriaRepasseIocw(d){
+  const proc = stripAccents(d['Procedimento']||'').toUpperCase();
+  if (proc.includes('FOTOCOAGULA') || proc.includes('CAPSULOTOMIA')) return 'YAG LASER';
+  return String(d['Tipo Procedimento']||'').toUpperCase().trim();
+}
+function repasseIocwTipoProcedimentoValido(d){
+  return REPASSE_TIPOS_PROC_IOCW.includes(categoriaRepasseIocw(d));
 }
 
 function montarFiltrosRepasse(prefixo, ehCirurgias){
@@ -2380,7 +2389,7 @@ function renderRepassePivot(prefixo, ehCirurgias){
   const linhas = (window.REPASSE_MEDICO_RAW||[]).filter(r => {
     const d = r.data || {};
     if (ehCirurgias !== repasseEhCirurgia(d['Tipo'])) return false;
-    if (!ehCirurgias && !repasseIocwTipoProcedimentoValido(d['Tipo Procedimento'])) return false;
+    if (!ehCirurgias && !repasseIocwTipoProcedimentoValido(d)) return false;
     if (medico && d['Médico Solic.'] !== medico) return false;
     if (mes && d['Mes'] !== mes) return false;
     if (convenioFiltro && d['Convênio'] !== convenioFiltro) return false;
@@ -2636,7 +2645,7 @@ function repasseIocwLinhasFiltradas(){
   return (window.REPASSE_MEDICO_RAW||[]).filter(r => {
     const d = r.data || {};
     if (repasseEhCirurgia(d['Tipo'])) return false;
-    if (!repasseIocwTipoProcedimentoValido(d['Tipo Procedimento'])) return false;
+    if (!repasseIocwTipoProcedimentoValido(d)) return false;
     if (medico && d['Médico Solic.'] !== medico) return false;
     if (mes && d['Mes'] !== mes) return false;
     if (convenio && d['Convênio'] !== convenio) return false;
@@ -2715,7 +2724,7 @@ function renderRepasseResumo(){
   linhas.forEach(r => {
     const d = r.data;
     const conv = titleCase(d['Convênio'] || '(sem convênio)');
-    const tipoProc = titleCase(d['Tipo Procedimento'] || '(sem tipo)');
+    const tipoProc = titleCase(categoriaRepasseIocw(d) || '(sem tipo)');
     const valor = Number(d['Valor']) || 0;
     (porConv[conv] ||= { total:0, porTipo:{} });
     porConv[conv].total += valor;
