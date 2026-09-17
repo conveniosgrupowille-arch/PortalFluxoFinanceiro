@@ -479,7 +479,9 @@
         <select id="repasseIocwMes"><option value="">Todos os meses</option></select>
         <select id="repasseIocwConvenio"><option value="">Todos os convênios</option></select>
       </div>
+      <button type="button" class="month-btn" id="btnSalvarRepasseIocwTopo" onclick="salvarPendentesRepasseIocw()" style="display:none; margin-bottom:10px; background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);">💾 Salvar alterações (<span class="qtd">0</span>)</button>
       <div id="repasseIocwContainer"></div>
+      <button type="button" class="month-btn" id="btnSalvarRepasseIocwRodape" onclick="salvarPendentesRepasseIocw()" style="display:none; margin-top:10px; background:var(--teal-deep); color:#fff; border-color:var(--teal-deep);">💾 Salvar alterações (<span class="qtd">0</span>)</button>
     </section>
   </div>
 
@@ -2496,7 +2498,11 @@ function renderRepassePivot(prefixo, ehCirurgias){
     const pac = porConvenio[conv].pacientes[paciente];
     pac.total += valor;
     pac.qtd++;
-    const statusRepasse = (window.REPASSE_STATUS_POR_ID||{})[r.id];
+    // Prioridade: alteração ainda não salva (buffer local) > último status
+    // salvo de verdade > padrão Aguardando - assim trocar de view/filtro
+    // sem clicar "Salvar" não faz a tela esquecer o que já foi mexido.
+    const pendente = (window.REPASSE_PENDENTES_IOCW||{})[r.id];
+    const statusRepasse = pendente || (window.REPASSE_STATUS_POR_ID||{})[r.id];
     pac.linhas.push({
       id: r.id, data: d['Data']||'', procedimento: repasseNomeCurtoProcedimento(d['Procedimento']),
       lateralidade: repasseLateralidade(d['Procedimento']),
@@ -2504,6 +2510,7 @@ function renderRepassePivot(prefixo, ehCirurgias){
       valor, valorBruto, tipoProcedimento: d['Tipo Procedimento']||'',
       statusRepasse: (statusRepasse && statusRepasse.status) || 'Aguardando',
       dataRepasse: (statusRepasse && statusRepasse.data_repasse) || '',
+      pendente: !!pendente,
     });
   });
 
@@ -2550,7 +2557,7 @@ function renderRepassePivot(prefixo, ehCirurgias){
             // Pagamento (do repasse ao médico, diferente da Data do
             // Receb. do convênio) voltou como coluna própria, só habilita
             // quando Status Repasse = Pago.
-            html += `<tr class="repasse-row-exame" data-id-exame="${l.id}">` +
+            html += `<tr class="repasse-row-exame" data-id-exame="${l.id}"${l.pendente?' style="background:#FDF0DD;"':''}>` +
               `<td>${l.data} · ${l.procedimento}</td>` +
               `<td style="text-align:center;">${l.lateralidade}</td>` +
               `<td style="text-align:center;">${repasseBadgeSituacao(l.situacao)}</td>` +
@@ -2583,6 +2590,13 @@ function renderRepassePivot(prefixo, ehCirurgias){
     });
   });
 
+  // Pedido 17/09/2026: "precisa colocar o botao salvar no inicio e fim da
+  // pagina para registrar quando altera algum status" - trocou de
+  // auto-save a cada mudança pra um buffer local (`REPASSE_PENDENTES_IOCW`)
+  // + botão "Salvar alterações" explícito no topo e no rodapé da aba,
+  // pensado pra quem mexe em várias linhas antes de confirmar - salva tudo
+  // de uma vez e dá uma confirmação clara em vez de gravar em silêncio a
+  // cada clique. Linha com alteração ainda não salva fica destacada.
   container.querySelectorAll('.repasse-status-sel, .repasse-data-sel').forEach(el => {
     el.addEventListener('click', (e) => e.stopPropagation()); // não fecha o paciente ao clicar no campo
     el.addEventListener('change', (e) => {
@@ -2593,14 +2607,54 @@ function renderRepassePivot(prefixo, ehCirurgias){
       const selData = tr.querySelector('.repasse-data-sel');
       selData.disabled = selStatus.value !== 'Efetuado';
       if (selStatus.value !== 'Efetuado') selData.value = '';
-      salvarRepasseStatus(id, selStatus.value, selData.value || null);
+      window.REPASSE_PENDENTES_IOCW = window.REPASSE_PENDENTES_IOCW || {};
+      window.REPASSE_PENDENTES_IOCW[id] = { status: selStatus.value, data_repasse: selData.value || null };
+      tr.style.background = '#FDF0DD';
+      atualizarBotoesSalvarRepasseIocw();
     });
   });
+  atualizarBotoesSalvarRepasseIocw();
+}
+
+function atualizarBotoesSalvarRepasseIocw(){
+  const qtd = Object.keys(window.REPASSE_PENDENTES_IOCW || {}).length;
+  ['btnSalvarRepasseIocwTopo', 'btnSalvarRepasseIocwRodape'].forEach(idBtn => {
+    const btn = document.getElementById(idBtn);
+    if (!btn) return;
+    btn.style.display = qtd > 0 ? '' : 'none';
+    const spanQtd = btn.querySelector('.qtd');
+    if (spanQtd) spanQtd.textContent = qtd;
+  });
+}
+
+async function salvarPendentesRepasseIocw(){
+  const pendentes = window.REPASSE_PENDENTES_IOCW || {};
+  const ids = Object.keys(pendentes);
+  if (!ids.length) return;
+  const btns = ['btnSalvarRepasseIocwTopo', 'btnSalvarRepasseIocwRodape'].map(id => document.getElementById(id)).filter(Boolean);
+  const textosOriginais = btns.map(b => b.innerHTML);
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Salvando…'; });
+
+  let erros = 0;
+  for (const id of ids) {
+    const ok = await salvarRepasseStatus(id, pendentes[id].status, pendentes[id].data_repasse);
+    if (!ok) erros++;
+  }
+
+  window.REPASSE_PENDENTES_IOCW = {};
+  document.querySelectorAll('#repasseIocwContainer tr.repasse-row-exame').forEach(tr => { tr.style.background = ''; });
+  btns.forEach((b, i) => { b.disabled = false; b.innerHTML = textosOriginais[i]; });
+  atualizarBotoesSalvarRepasseIocw();
+
+  if (erros > 0) alert(`${erros} de ${ids.length} alteração(ões) não foram salvas - tente de novo.`);
+  else alert(`${ids.length} alteração(ões) salva(s) com sucesso.`);
 }
 
 // Grava o status de repasse (clínica -> médico) direto no Supabase - fica
 // só no Portal, não mexe na planilha Excel de origem (ver comentário acima
-// sobre a diferença entre Situação de Pagamento e Status Repasse).
+// sobre a diferença entre Situação de Pagamento e Status Repasse). Retorna
+// true/false (em vez de alertar direto) pra `salvarPendentesRepasseIocw`
+// poder contar sucesso/erro de um lote e mostrar 1 confirmação só.
 async function salvarRepasseStatus(id, status, dataRepasse){
   window.REPASSE_STATUS_POR_ID = window.REPASSE_STATUS_POR_ID || {};
   window.REPASSE_STATUS_POR_ID[id] = { status, data_repasse: dataRepasse };
@@ -2608,7 +2662,7 @@ async function salvarRepasseStatus(id, status, dataRepasse){
     p_identity: IDENTITY, p_password: SENHA,
     p_repasse_medico_id: Number(id), p_status: status, p_data_repasse: dataRepasse,
   });
-  if (error) alert('Não consegui salvar o status de repasse: ' + error.message);
+  return !error;
 }
 
 function processarRepasseMedicoPivot(repasseRows){
