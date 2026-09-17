@@ -976,6 +976,7 @@ function fmtMoney(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFrac
 // de moeda já fica claro pelo resto da tela/nota da aba).
 function fmtNum(v){ return (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseDateISO(s){ if(!s) return null; const [a,m,d]=s.split('-'); return new Date(+a,+m-1,+d); }
+function isoParaBR(s){ if(!s) return ''; const [a,m,d]=String(s).split('-'); return `${d}/${m}/${a}`; }
 function mesLabelFromDate(d){ return MES_NOMES[d.getMonth()+1] + '/' + String(d.getFullYear()).slice(2); }
 
 // ---- Imposto por convenio (copiado do Painel local, 31/08/2026) ----
@@ -1384,6 +1385,25 @@ async function carregarTudo(){
   processarDivergencias(faturadosParaDivergencias, atendidosGeral);
   processarPrevisao(faturadosParaDivergencias, repasseMedico);
   processarMedicos(faturadosParaDivergencias);
+  // "Data do Receb." do Repasse Médico IOCW (pedido 17/09/2026: "essa
+  // informação consta nos extratos e ja falei para considerar data de
+  // integração das faturas que estao nos relatorios") - `Data de
+  // Recebimento` dentro do REPASSE MÉDICO.xlsx é 88% vazia (achado real,
+  // não dá pra confiar nela). O que o usuário chama de "data de
+  // integração" já foi investigado e resolvido antes (comentário de
+  // 02/09/2026 em extrair_faturados_naofaturados_exames_sql.py): NÃO é o
+  // `tbDataRepasse` (esse é o repasse ao MÉDICO, ciclo separado) - é
+  // `tbDataEntrega + tbDiasVenc`, que já vem pronto como `data_vencimento`
+  // em `faturados_exames` (bate exato com a tela "Faturas Emitidas por
+  // Convênio" do Clinic). Junta por `ficha` (mesmo Num. Ficha nas duas
+  // fontes) - testado: 82,6% de cobertura (21.865 de 26.477 linhas IOCW),
+  // muito melhor que os 12% da Data de Recebimento original.
+  window.REPASSE_VENCIMENTO_POR_FICHA = {};
+  examesRaw.forEach(r => {
+    if (r.ficha && r.data_vencimento && !window.REPASSE_VENCIMENTO_POR_FICHA[r.ficha]) {
+      window.REPASSE_VENCIMENTO_POR_FICHA[r.ficha] = r.data_vencimento;
+    }
+  });
   processarRepasseMedicoPivot(repasseMedico);
   processarCortesias(atendidosGeral);
   montarTabs();
@@ -2503,10 +2523,15 @@ function renderRepassePivot(prefixo, ehCirurgias){
     // sem clicar "Salvar" não faz a tela esquecer o que já foi mexido.
     const pendente = (window.REPASSE_PENDENTES_IOCW||{})[r.id];
     const statusRepasse = pendente || (window.REPASSE_STATUS_POR_ID||{})[r.id];
+    // Só preenche pelo vencimento da fatura quando já está "Recebido" -
+    // pra "Aguardando"/"Glosa" mostrar a data de vencimento seria enganoso
+    // (parece "já recebido nessa data" sem ter sido).
+    const vencimentoFatura = (window.REPASSE_VENCIMENTO_POR_FICHA||{})[r.ficha];
+    const dataRecebCalculada = d['Data de Recebimento'] || (situacao === 'Recebido' && vencimentoFatura ? isoParaBR(vencimentoFatura) : '');
     pac.linhas.push({
       id: r.id, data: d['Data']||'', procedimento: repasseNomeCurtoProcedimento(d['Procedimento']),
       lateralidade: repasseLateralidade(d['Procedimento']),
-      situacao: situacao||'', dataPagamento: d['Data de Recebimento']||'',
+      situacao: situacao||'', dataPagamento: dataRecebCalculada,
       valor, valorBruto, tipoProcedimento: d['Tipo Procedimento']||'',
       statusRepasse: (statusRepasse && statusRepasse.status) || 'Aguardando',
       dataRepasse: (statusRepasse && statusRepasse.data_repasse) || '',
