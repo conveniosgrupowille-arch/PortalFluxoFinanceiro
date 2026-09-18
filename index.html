@@ -282,6 +282,7 @@
     <div class="sidebar-divider"></div>
     <button type="button" class="tab-btn active" data-tab="fluxo">Fluxo de Receitas <span class="n" id="tabFluxoPendCount" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="previsao">Previsão</button>
+    <button type="button" class="tab-btn" data-tab="pendencias">Contas a Receber</button>
     <button type="button" class="tab-btn" data-tab="medicos">Médicos &amp; Procedimentos</button>
     <button type="button" class="tab-btn" data-tab="repasse-iocw">Repasse Médico IOCW</button>
     <button type="button" class="tab-btn" data-tab="repasse-cirurgias">Repasse Médico Cirurgias</button>
@@ -413,6 +414,37 @@
         <table>
           <thead><tr><th>Convênio</th><th style="text-align:right;">Itens</th><th style="text-align:right;">Faturado (aguardando)</th><th style="text-align:right;">Não faturado</th><th style="text-align:right;">Recebido</th><th style="text-align:right;">Glosado</th></tr></thead>
           <tbody id="previsaoBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="panel-pendencias" class="tab-panel" style="display:none;">
+    <section class="section" id="secPendencias" style="margin-top:0; padding-top:0; border-top:none;">
+      <h2>Contas a Receber</h2>
+      <p class="note">O que ainda falta receber por convênio, agrupado pelo mês do atendimento (Exames/Consultas) ou da cirurgia. <strong>Aguardando</strong> = faturado e ainda não pago; <strong>Glosado</strong> = glosa que ainda não foi recuperada (nas cirurgias com glosa parcial, só o saldo não pago). Valores BRUTOS, sem desconto de imposto.</p>
+      <p class="note" id="pendNotaCirurgias" style="margin-bottom:12px;"></p>
+      <div style="margin-bottom:14px;">
+        <select id="pendConvenio"><option value="">Todos os convênios</option></select>
+      </div>
+      <div class="kpi-grid" id="kpiPendencias"></div>
+      <div class="card">
+        <h3 id="pendTituloTabela">A receber por mês do atendimento</h3>
+        <div class="fluxo-scroll">
+        <table>
+          <thead><tr><th>Mês</th><th style="text-align:right;">Cirurgias aguardando</th><th style="text-align:right;">Cirurgias glosadas</th><th style="text-align:right;">Exames aguardando</th><th style="text-align:right;">Exames glosados</th><th style="text-align:right;">Total a receber</th></tr></thead>
+          <tbody id="pendBody"></tbody>
+        </table>
+        </div>
+      </div>
+      <div class="card" id="pendCirurgiasCard" style="margin-top:16px; display:none;">
+        <h3>Cirurgias pendentes</h3>
+        <div class="sub">Cirurgias faturadas que ainda não foram pagas integralmente (aguardando ou com glosa).</div>
+        <div class="fluxo-scroll">
+        <table>
+          <thead><tr><th>Convênio</th><th>Paciente</th><th>Data da cirurgia</th><th>Vencimento</th><th style="text-align:right;">Faturado</th><th style="text-align:right;">Pago</th><th style="text-align:right;">A receber</th><th>Situação</th><th>Justificativa / observação</th></tr></thead>
+          <tbody id="pendCirurgiasBody"></tbody>
         </table>
         </div>
       </div>
@@ -1405,9 +1437,145 @@ async function carregarTudo(){
     }
   });
   processarRepasseMedicoPivot(repasseMedico);
+  processarPendencias(repasseMedico);
   processarCortesias(atendidosGeral);
   montarTabs();
   document.getElementById('tabs').style.display = '';
+}
+
+// ==================== CONTAS A RECEBER ====================
+// Resumo por convênio, mês a mês (pedido 18/09/2026): quanto falta receber de
+// Cirurgias e de Exames/Consultas, separado em "aguardando pagamento" e
+// "glosado ainda não recuperado". Exames vem do repasse_medico (Situação de
+// Pagamento = Aguardando/Glosado, mesma fonte do Repasse Médico). Cirurgias vem
+// da tabela cirurgias_conciliadas (conciliada com os demonstrativos do
+// Bradesco/Mediservice em migrar_cirurgias_conciliadas.py) - por enquanto só
+// esses 2 convênios têm essa conciliação; nos demais as colunas de cirurgia
+// mostram "—" em vez de 0 (0 seria informação falsa).
+let PEND_EXAMES = [];
+let PEND_CIR = [];
+let PEND_CIR_CONVS = new Set();
+
+function pendConvKey(raw){
+  return stripAccents(normalizeConvenio(String(raw||'').trim())).toUpperCase().replace(/\s+/g,' ').trim();
+}
+function pendMesLabel(ym){ const [a,m] = ym.split('-'); return m + '/' + a; }
+
+function processarPendencias(repasseRows){
+  PEND_EXAMES = [];
+  (repasseRows || []).forEach(r => {
+    const d = r.data || {};
+    if (String(d['Tipo'] || '') === 'Cirurgia' || !r.data_atendimento) return;
+    const s = r.situacao_pagamento === 'Aguardando' ? 'aguardando' : (r.situacao_pagamento === 'Glosado' ? 'glosado' : null);
+    const valor = Number(d['Valor']) || 0;
+    if (!s || !valor) return;
+    const conv = pendConvKey(d['Convênio']);
+    if (!conv) return;
+    PEND_EXAMES.push({ conv, mes: String(r.data_atendimento).slice(0, 7), sit: s, valor });
+  });
+  const sel = document.getElementById('pendConvenio');
+  if (sel && !sel.dataset.ligado) {
+    sel.addEventListener('change', renderPendencias);
+    sel.dataset.ligado = '1';
+  }
+  renderPendencias();
+  carregarCirurgiasPendencias();
+}
+
+async function carregarCirurgiasPendencias(){
+  try {
+    const rows = await fetchAll('cirurgias_conciliadas');
+    PEND_CIR_CONVS = new Set(rows.map(r => pendConvKey(r.convenio)));
+    PEND_CIR = rows.filter(r => r.situacao !== 'Recebido' && r.data_cirurgia).map(r => ({
+      conv: pendConvKey(r.convenio), convExib: titleCase(String(r.convenio || '').trim()),
+      mes: String(r.data_cirurgia).slice(0, 7),
+      sit: String(r.situacao || '').startsWith('Glosa') ? 'glosado' : 'aguardando',
+      valor: Number(r.valor_nao_recebido) || 0, raw: r,
+    }));
+  } catch (e) { console.error('cirurgias_conciliadas', e); PEND_CIR = []; PEND_CIR_CONVS = new Set(); }
+  renderPendencias();
+}
+
+function renderPendencias(){
+  const sel = document.getElementById('pendConvenio');
+  if (!sel) return;
+  const escolhido = sel.value;
+
+  // lista de convênios com algo pendente (exames ou cirurgias), maior valor primeiro
+  const totalPorConv = {};
+  const nomePorConv = {};
+  PEND_EXAMES.forEach(x => { totalPorConv[x.conv] = (totalPorConv[x.conv] || 0) + x.valor; });
+  PEND_CIR.forEach(x => { totalPorConv[x.conv] = (totalPorConv[x.conv] || 0) + x.valor; nomePorConv[x.conv] = x.convExib; });
+  const convs = Object.keys(totalPorConv).sort((a, b) => totalPorConv[b] - totalPorConv[a]);
+  sel.innerHTML = '<option value="">Todos os convênios</option>' + convs.map(c =>
+    `<option value="${escAttr(c)}"${c === escolhido ? ' selected' : ''}>${escAttr(nomePorConv[c] || titleCase(c))}</option>`).join('');
+
+  const filtra = x => !escolhido || x.conv === escolhido;
+  const ex = PEND_EXAMES.filter(filtra);
+  const ci = PEND_CIR.filter(filtra);
+  const temConciliacaoCir = !escolhido || PEND_CIR_CONVS.has(escolhido);
+
+  const soma = (lista, sit) => Math.round(lista.filter(x => x.sit === sit).reduce((s, x) => s + x.valor, 0) * 100) / 100;
+  const meses = [...new Set([...ex, ...ci].map(x => x.mes))].sort();
+  const tabela = meses.map(m => {
+    const e = ex.filter(x => x.mes === m), c = ci.filter(x => x.mes === m);
+    const v = { ca: soma(c, 'aguardando'), cg: soma(c, 'glosado'), ea: soma(e, 'aguardando'), eg: soma(e, 'glosado') };
+    return { mes: m, ...v, total: Math.round((v.ca + v.cg + v.ea + v.eg) * 100) / 100 };
+  });
+  const tot = tabela.reduce((a, r) => ({ ca: a.ca + r.ca, cg: a.cg + r.cg, ea: a.ea + r.ea, eg: a.eg + r.eg, total: a.total + r.total }), { ca: 0, cg: 0, ea: 0, eg: 0, total: 0 });
+
+  const cirCel = v => temConciliacaoCir ? fmtNum(v) : '—';
+  document.getElementById('kpiPendencias').innerHTML = `
+    <div class="kpi selected"><label>Total a receber</label><div class="value">${fmtMoney(tot.total)}</div></div>
+    <div class="kpi"><label>Aguardando pagamento</label><div class="value">${fmtMoney(tot.ca + tot.ea)}</div><div class="foot">Cirurgias ${temConciliacaoCir ? fmtMoney(tot.ca) : '—'} · Exames ${fmtMoney(tot.ea)}</div></div>
+    <div class="kpi alert"><label>Glosado (a recuperar)</label><div class="value">${fmtMoney(tot.cg + tot.eg)}</div><div class="foot">Cirurgias ${temConciliacaoCir ? fmtMoney(tot.cg) : '—'} · Exames ${fmtMoney(tot.eg)}</div></div>`;
+
+  document.getElementById('pendTituloTabela').textContent =
+    'A receber por mês do atendimento — ' + (escolhido ? (nomePorConv[escolhido] || titleCase(escolhido)) : 'todos os convênios');
+  const linhasHtml = tabela.map(r => `
+    <tr>
+      <td>${pendMesLabel(r.mes)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${cirCel(r.ca)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--amber);">${cirCel(r.cg)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtNum(r.ea)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; color:var(--amber);">${fmtNum(r.eg)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; font-weight:700;">${fmtNum(r.total)}</td>
+    </tr>`).join('');
+  const totalHtml = tabela.length ? `
+    <tr class="fluxo-total">
+      <td>TOTAL</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${cirCel(tot.ca)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${cirCel(tot.cg)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtNum(tot.ea)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtNum(tot.eg)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtNum(tot.total)}</td>
+    </tr>` : '';
+  document.getElementById('pendBody').innerHTML = (linhasHtml + totalHtml) ||
+    '<tr><td colspan="6" style="text-align:center; color:var(--stone); padding:20px;">Nada pendente para este convênio.</td></tr>';
+
+  const nomesConciliados = [...PEND_CIR_CONVS].map(c => titleCase(c)).join(' e ');
+  document.getElementById('pendNotaCirurgias').textContent = PEND_CIR_CONVS.size
+    ? `Cirurgias: conciliação com os demonstrativos de pagamento disponível só para ${nomesConciliados}. Nos demais convênios a coluna de cirurgias aparece como "—" (não é zero, apenas ainda não conciliado).`
+    : '';
+
+  // detalhe das cirurgias pendentes do convênio escolhido
+  const det = ci.slice().sort((a, b) => (a.raw.data_cirurgia < b.raw.data_cirurgia ? -1 : 1));
+  document.getElementById('pendCirurgiasCard').style.display = det.length ? '' : 'none';
+  document.getElementById('pendCirurgiasBody').innerHTML = det.map(x => {
+    const r = x.raw;
+    const obs = [r.justificativas, r.observacao].filter(Boolean).join(' — ');
+    return `<tr>
+      <td>${escAttr(x.convExib)}</td>
+      <td>${escAttr(r.paciente)}</td>
+      <td>${isoParaBR(r.data_cirurgia)}</td>
+      <td>${isoParaBR(r.data_vencimento)}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtNum(Number(r.valor_faturado))}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace;">${fmtNum(Number(r.valor_pago))}</td>
+      <td style="text-align:right; font-family:'IBM Plex Mono',monospace; font-weight:600;">${fmtNum(x.valor)}</td>
+      <td>${x.sit === 'glosado' ? '<span class="tag dup">' + (String(r.situacao).includes('parcial') ? 'Glosa parcial' : 'Glosa total') + '</span>' : '<span class="tag invest">Aguardando</span>'}</td>
+      <td style="font-size:11.5px; color:var(--stone);">${escAttr(obs)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ==================== TABS ====================
