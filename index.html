@@ -1348,6 +1348,7 @@ async function carregarTudo(){
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valorFinal || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Exames|' + r.num_fatura] : null,
+      backfillChaveFatura: r.num_fatura ? ('Exames|' + r.num_fatura) : null,
       entidade: 'iocw', procedimento: r.procedimento,
       ehConsultaScSaude: contasComConsultaExames.has(dedupKeyRow),
     });
@@ -1364,6 +1365,7 @@ async function carregarTudo(){
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valor_conta || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Cirurgias|' + r.num_fatura] : null,
+      backfillChaveFatura: r.num_fatura ? ('Cirurgias|' + r.num_fatura) : null,
       entidade: 'hub',
     });
   });
@@ -1601,6 +1603,11 @@ function getFluxoPagamentoMes(mes){
   });
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const hojeISO = hoje.toISOString().slice(0,10);
+  // Backfill guarda o valor recebido da FATURA inteira - so' pode entrar 1x
+  // por fatura (nao por conta: uma fatura de Exames tem varias contas, e
+  // cada conta tem varias linhas de item). Achado real 08/10/2026 (mesmo bug
+  // replicado desta funcao no Portal Autorizacao local).
+  const faturasBackfillContadas = new Set();
 
   ROWS.forEach(r => {
     const dataRecebReal = r.backfillPagamento && r.backfillPagamento.data_recebimento;
@@ -1610,8 +1617,14 @@ function getFluxoPagamentoMes(mes){
     if (lab !== mes) return;
     const dia = vd.getDate();
     const conv = titleCase(r.convenio);
-    const valor = r.backfillPagamento ? (r.backfillPagamento.valor_recebido||0)
-                  : Math.round((r.valorFinal||0)*(1-impostoPctParaRow(r))*100)/100;
+    let valor;
+    if (r.backfillPagamento) {
+      const jaContada = !r.backfillChaveFatura || faturasBackfillContadas.has(r.backfillChaveFatura);
+      if (!jaContada) faturasBackfillContadas.add(r.backfillChaveFatura);
+      valor = jaContada ? 0 : (r.backfillPagamento.valor_recebido || 0);
+    } else {
+      valor = Math.round((r.valorFinal||0)*(1-impostoPctParaRow(r))*100)/100;
+    }
     const recebido = isEfetivamenteRecebido(r, hojeISO);
     const alvo = recebido ? 'recebido' : 'aReceber';
     (porDia[conv] ||= {});
@@ -1675,7 +1688,41 @@ function getFluxoPagamentoMes(mes){
     porDia['Bradesco Saude'] = novoPorDia;
   }
 
-  return porDia;
+  return mesclarLinhasMesmoRotulo(porDia);
+}
+
+// Varias faturas do mesmo convenio podem viver em chaves internas distintas
+// (ex.: "SC Saude Iocw · Fatura 2546"/"· Fatura 2560", criadas pra nao somar
+// depositos bancarios diferentes) - mas se 2+ delas caem no MESMO dia, isso
+// aparecia como 2 linhas iguais na tela em vez de 1 so (pedido do usuario
+// 03/11/2026: "se a data e' mesma deve somar todas"). Mescla aqui, no fim do
+// calculo, SO' pro que aparece na tela - a chave interna de cada fatura
+// continua distinta nos dados (necessario pra nao colidir no banco), a soma
+// por rotulo exibido acontece so' nesse ultimo passo.
+function mesclarLinhasMesmoRotulo(porDia){
+  const porRotulo = {};
+  Object.keys(porDia).forEach(conv => {
+    const rotulo = labelExibicaoConvenio(conv);
+    (porRotulo[rotulo] ||= []).push(conv);
+  });
+  const resultado = {};
+  Object.values(porRotulo).forEach(convs => {
+    if (convs.length === 1) { resultado[convs[0]] = porDia[convs[0]]; return; }
+    const chavePrincipal = convs[0];
+    const mesclado = {};
+    convs.forEach(conv => {
+      Object.entries(porDia[conv]).forEach(([dia, v]) => {
+        const anterior = mesclado[dia] || {recebido:0, aReceber:0, entregas:new Set()};
+        mesclado[dia] = {
+          recebido: Math.round((anterior.recebido+(v.recebido||0))*100)/100,
+          aReceber: Math.round((anterior.aReceber+(v.aReceber||0))*100)/100,
+          entregas: new Set([...anterior.entregas, ...(v.entregas||[])]),
+        };
+      });
+    });
+    resultado[chavePrincipal] = mesclado;
+  });
+  return resultado;
 }
 
 function somaStatusVal(v){ return v ? (v.recebido||0)+(v.aReceber||0) : 0; }
