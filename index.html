@@ -1344,6 +1344,14 @@ async function carregarTudo(){
     if (stripAccents(conv).toUpperCase().trim() === 'LEVMED SAUDE') {
       conv = 'Levmed IOCW';
     }
+    // NOSSA SAUDE (04/11/2026, pedido do usuario - "pode separar hub e iocw
+    // porque sao pagos em notas separadas como a sc saude") - mesmo padrao do
+    // Levmed: exames+consultas vem numa fatura mensal so' (sem split por
+    // fatura dentro de IOCW); cirurgias (HUB) tem nota separada por cirurgia,
+    // ver bloco de cirurgias abaixo.
+    if (stripAccents(conv).toUpperCase().trim() === 'NOSSA SAUDE OPERADORA DE PLANOS') {
+      conv = 'Nossa Saude IOCW';
+    }
     const dedupKeyRow = r.conta || `${r.ficha}|${r.data_atendimento}|${r.total_honorarios}`;
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valorFinal || 0,
@@ -1362,6 +1370,9 @@ async function carregarTudo(){
     if (stripAccents(conv).toUpperCase().trim() === 'LEVMED SAUDE') {
       conv = 'Levmed HUB';
     }
+    if (stripAccents(conv).toUpperCase().trim() === 'NOSSA SAUDE OPERADORA DE PLANOS') {
+      conv = 'Nossa Saude HUB';
+    }
     ROWS.push({
       convenio: conv, dataVencimento: r.data_vencimento, valorFinal: r.valor_conta || 0,
       backfillPagamento: r.num_fatura ? backfillByFatura['Cirurgias|' + r.num_fatura] : null,
@@ -1377,6 +1388,8 @@ async function carregarTudo(){
     const cnpjScSaude = cnpjConvenioLabel('SC SAUDE');
     const bancoLevmed = bancoConvenioLabel('LEVMED SAUDE');
     const cnpjLevmed = cnpjConvenioLabel('LEVMED SAUDE');
+    const bancoNossaSaude = bancoConvenioLabel('NOSSA SAUDE OPERADORA DE PLANOS');
+    const cnpjNossaSaude = cnpjConvenioLabel('NOSSA SAUDE OPERADORA DE PLANOS');
     const chaveNorm = nome => stripAccents(nome).toUpperCase().trim().replace(/\s+/g,' ');
     new Set(ROWS.filter(r => r.convenio.startsWith('Levmed')).map(r => r.convenio)).forEach(nome => {
       if (bancoLevmed) BANCO_MAP[chaveNorm(nome)] = bancoLevmed;
@@ -1385,6 +1398,10 @@ async function carregarTudo(){
     new Set(ROWS.filter(r => r.convenio.startsWith('SC Saude')).map(r => r.convenio)).forEach(nome => {
       if (bancoScSaude) BANCO_MAP[chaveNorm(nome)] = bancoScSaude;
       if (cnpjScSaude) CNPJ_MAP[chaveNorm(nome)] = cnpjScSaude;
+    });
+    new Set(ROWS.filter(r => r.convenio.startsWith('Nossa Saude')).map(r => r.convenio)).forEach(nome => {
+      if (bancoNossaSaude) BANCO_MAP[chaveNorm(nome)] = bancoNossaSaude;
+      if (cnpjNossaSaude) CNPJ_MAP[chaveNorm(nome)] = cnpjNossaSaude;
     });
   }
 
